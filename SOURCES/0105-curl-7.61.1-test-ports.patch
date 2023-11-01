@@ -1,0 +1,71 @@
+From e6507a9abbfd4ac93ea3053c8f3385a2405f19d8 Mon Sep 17 00:00:00 2001
+From: Kamil Dudka <kdudka@redhat.com>
+Date: Fri, 29 Jan 2021 11:34:49 +0100
+Subject: [PATCH] tests: do not hard-wire ports of test servers
+
+---
+ tests/data/test1448 | 4 ++--
+ tests/data/test651  | 2 +-
+ tests/data/test653  | 4 ++--
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/tests/data/test1448 b/tests/data/test1448
+index e04f47b..5022ef9 100644
+--- a/tests/data/test1448
++++ b/tests/data/test1448
+@@ -17,7 +17,7 @@ HTTP/1.1 302 OK swsbounce
+ Date: Thu, 09 Nov 2010 14:49:00 GMT
+ Content-Length: 9
+ Content-Type: text/plain
+-Location: http://åäö.se:8990/14480001
++Location: http://åäö.se:%HTTPPORT/14480001
+ 
+ redirect
+ </data>
+@@ -52,7 +52,7 @@ Redirect following to UTF-8 IDN host name
+  </name>
+ 
+  <command>
+-http://åäö.se:%HTTPPORT/1448 --resolve xn--4cab6c.se:%HTTPPORT:%HOSTIP -L --connect-to %HOSTIP:8990:%HOSTIP:%HTTPPORT
++http://åäö.se:%HTTPPORT/1448 --resolve xn--4cab6c.se:%HTTPPORT:%HOSTIP -L --connect-to %HOSTIP:%HTTPPORT:%HOSTIP:%HTTPPORT
+ </command>
+ </client>
+ 
+diff --git a/tests/data/test651 b/tests/data/test651
+index b00ca5d..8d47c9f 100644
+--- a/tests/data/test651
++++ b/tests/data/test651
+@@ -57,7 +57,7 @@ s/boundary=------------------------[a-z0-9]*/boundary=--------------------------
+ # (5*12) == 60 bytes less
+ <protocol>
+ POST /651 HTTP/1.1
+-Host: 127.0.0.1:8990
++Host: 127.0.0.1:%HTTPPORT
+ Accept: */*
+ Content-Length: 17139
+ Content-Type: multipart/form-data; boundary=----------------------------
+diff --git a/tests/data/test653 b/tests/data/test653
+index d620b57..492d551 100644
+--- a/tests/data/test653
++++ b/tests/data/test653
+@@ -67,7 +67,7 @@ s/boundary=------------------------[a-z0-9]*/boundary=--------------------------
+ # (5*12) == 60 bytes less
+ <protocol>
+ POST /653 HTTP/1.1
+-Host: 127.0.0.1:8990
++Host: 127.0.0.1:%HTTPPORT
+ Accept: */*
+ Content-Length: 150
+ Content-Type: multipart/form-data; boundary=----------------------------
+@@ -78,7 +78,7 @@ Content-Disposition: form-data; name="name"
+ short value
+ --------------------------------
+ POST /653 HTTP/1.1
+-Host: 127.0.0.1:8990
++Host: 127.0.0.1:%HTTPPORT
+ Accept: */*
+ Content-Length: 167
+ Content-Type: multipart/form-data; boundary=----------------------------
+-- 
+2.26.2
+

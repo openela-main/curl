@@ -1,0 +1,66 @@
+From 095d4cf3b1c388b2871e3783f8c41b1e01200a25 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Felix=20H=C3=A4dicke?= <felixhaedicke@web.de>
+Date: Wed, 23 Jan 2019 23:47:55 +0100
+Subject: [PATCH] libssh: do not let libssh create socket
+
+By default, libssh creates a new socket, instead of using the socket
+created by curl for SSH connections.
+
+Pass the socket created by curl to libssh using ssh_options_set() with
+SSH_OPTIONS_FD directly after ssh_new(). So libssh uses our socket
+instead of creating a new one.
+
+This approach is very similar to what is done in the libssh2 code, where
+the socket created by curl is passed to libssh2 when
+libssh2_session_startup() is called.
+
+Fixes #3491
+Closes #3495
+
+Upstream-commit: 15c94b310bf9e0c92d71fca5a88eb67a1e2548a6
+Signed-off-by: Kamil Dudka <kdudka@redhat.com>
+---
+ lib/ssh-libssh.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/lib/ssh-libssh.c b/lib/ssh-libssh.c
+index 7d59089..4110be2 100644
+--- a/lib/ssh-libssh.c
++++ b/lib/ssh-libssh.c
+@@ -549,6 +549,7 @@ static CURLcode myssh_statemach_act(struct connectdata *conn, bool *block)
+   struct Curl_easy *data = conn->data;
+   struct SSHPROTO *protop = data->req.protop;
+   struct ssh_conn *sshc = &conn->proto.sshc;
++  curl_socket_t sock = conn->sock[FIRSTSOCKET];
+   int rc = SSH_NO_ERROR, err;
+   char *new_readdir_line;
+   int seekerr = CURL_SEEKFUNC_OK;
+@@ -792,7 +793,7 @@ static CURLcode myssh_statemach_act(struct connectdata *conn, bool *block)
+ 
+       Curl_pgrsTime(conn->data, TIMER_APPCONNECT);      /* SSH is connected */
+ 
+-      conn->sockfd = ssh_get_fd(sshc->ssh_session);
++      conn->sockfd = sock;
+       conn->writesockfd = CURL_SOCKET_BAD;
+ 
+       if(conn->handler->protocol == CURLPROTO_SFTP) {
+@@ -2048,6 +2049,7 @@ static CURLcode myssh_connect(struct connectdata *conn, bool *done)
+ {
+   struct ssh_conn *ssh;
+   CURLcode result;
++  curl_socket_t sock = conn->sock[FIRSTSOCKET];
+   struct Curl_easy *data = conn->data;
+   int rc;
+ 
+@@ -2076,6 +2078,8 @@ static CURLcode myssh_connect(struct connectdata *conn, bool *done)
+     return CURLE_FAILED_INIT;
+   }
+ 
++  ssh_options_set(ssh->ssh_session, SSH_OPTIONS_FD, &sock);
++
+   if(conn->user) {
+     infof(data, "User: %s\n", conn->user);
+     ssh_options_set(ssh->ssh_session, SSH_OPTIONS_USER, conn->user);
+-- 
+2.17.2
+
