@@ -1,0 +1,34 @@
+From cc52b2d89397ff26b01d791cd1c605cba741aaa4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Felix=20H=C3=A4dicke?= <felixhaedicke@web.de>
+Date: Wed, 24 Jul 2019 11:47:51 +0200
+Subject: [PATCH] ssh-libssh: do not specify O_APPEND when not in append mode
+
+Specifying O_APPEND in conjunction with O_TRUNC and O_CREAT does not
+make much sense. And this combination of flags is not accepted by all
+SFTP servers (at least not Apache SSHD).
+
+Fixes #4147
+Closes #4148
+
+Upstream-commit: 62617495102c60124db8a909f592f063e38a89aa
+Signed-off-by: Kamil Dudka <kdudka@redhat.com>
+---
+ lib/ssh-libssh.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/ssh-libssh.c b/lib/ssh-libssh.c
+index 4110be2..2414173 100644
+--- a/lib/ssh-libssh.c
++++ b/lib/ssh-libssh.c
+@@ -1112,7 +1112,7 @@ static CURLcode myssh_statemach_act(struct connectdata *conn, bool *block)
+         flags = O_WRONLY|O_APPEND;
+       else
+         /* Clear file before writing (normal behaviour) */
+-        flags = O_WRONLY|O_APPEND|O_CREAT|O_TRUNC;
++        flags = O_WRONLY|O_CREAT|O_TRUNC;
+ 
+       if(sshc->sftp_file)
+         sftp_close(sshc->sftp_file);
+-- 
+2.39.2
+

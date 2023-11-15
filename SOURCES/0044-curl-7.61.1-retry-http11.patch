@@ -1,0 +1,112 @@
+From 78b62ef1206621e8f4f1628ad4eb0a7be877c96f Mon Sep 17 00:00:00 2001
+From: Johannes Schindelin <johannes.schindelin@gmx.de>
+Date: Fri, 7 Dec 2018 17:04:39 +0100
+Subject: [PATCH] Upon HTTP_1_1_REQUIRED, retry the request with HTTP/1.1
+
+This is a companion patch to cbea2fd2c (NTLM: force the connection to
+HTTP/1.1, 2018-12-06): with NTLM, we can switch to HTTP/1.1
+preemptively. However, with other (Negotiate) authentication it is not
+clear to this developer whether there is a way to make it work with
+HTTP/2, so let's try HTTP/2 first and fall back in case we encounter the
+error HTTP_1_1_REQUIRED.
+
+Note: we will still keep the NTLM workaround, as it avoids an extra
+round trip.
+
+Daniel Stenberg helped a lot with this patch, in particular by
+suggesting to introduce the Curl_h2_http_1_1_error() function.
+
+Closes #3349
+
+Signed-off-by: Johannes Schindelin <johannes.schindelin@gmx.de>
+
+Upstream-commit: d997aa0e963c5be5de100dccdc5208d39bd3d62b
+Signed-off-by: Kamil Dudka <kdudka@redhat.com>
+---
+ lib/http2.c |  8 ++++++++
+ lib/http2.h |  4 ++++
+ lib/multi.c | 20 ++++++++++++++++++++
+ 3 files changed, 32 insertions(+)
+
+diff --git a/lib/http2.c b/lib/http2.c
+index d769193..3071097 100644
+--- a/lib/http2.c
++++ b/lib/http2.c
+@@ -2300,6 +2300,14 @@ void Curl_http2_cleanup_dependencies(struct Curl_easy *data)
+     Curl_http2_remove_child(data->set.stream_depends_on, data);
+ }
+ 
++/* Only call this function for a transfer that already got a HTTP/2
++   CURLE_HTTP2_STREAM error! */
++bool Curl_h2_http_1_1_error(struct connectdata *conn)
++{
++  struct http_conn *httpc = &conn->proto.httpc;
++  return (httpc->error_code == NGHTTP2_HTTP_1_1_REQUIRED);
++}
++
+ #else /* !USE_NGHTTP2 */
+ 
+ /* Satisfy external references even if http2 is not compiled in. */
+diff --git a/lib/http2.h b/lib/http2.h
+index 21cd9b8..91e504c 100644
+--- a/lib/http2.h
++++ b/lib/http2.h
+@@ -59,6 +59,9 @@ CURLcode Curl_http2_add_child(struct Curl_easy *parent,
+ void Curl_http2_remove_child(struct Curl_easy *parent,
+                              struct Curl_easy *child);
+ void Curl_http2_cleanup_dependencies(struct Curl_easy *data);
++
++/* returns true if the HTTP/2 stream error was HTTP_1_1_REQUIRED */
++bool Curl_h2_http_1_1_error(struct connectdata *conn);
+ #else /* USE_NGHTTP2 */
+ #define Curl_http2_init(x) CURLE_UNSUPPORTED_PROTOCOL
+ #define Curl_http2_send_request(x) CURLE_UNSUPPORTED_PROTOCOL
+@@ -74,6 +77,7 @@ void Curl_http2_cleanup_dependencies(struct Curl_easy *data);
+ #define Curl_http2_add_child(x, y, z)
+ #define Curl_http2_remove_child(x, y)
+ #define Curl_http2_cleanup_dependencies(x)
++#define Curl_h2_http_1_1_error(x) 0
+ #endif
+ 
+ #endif /* HEADER_CURL_HTTP2_H */
+diff --git a/lib/multi.c b/lib/multi.c
+index 0f57fd5..d64ba94 100644
+--- a/lib/multi.c
++++ b/lib/multi.c
+@@ -46,6 +46,7 @@
+ #include "vtls/vtls.h"
+ #include "connect.h"
+ #include "http_proxy.h"
++#include "http2.h"
+ /* The last 3 #include files should be in this order */
+ #include "curl_printf.h"
+ #include "curl_memory.h"
+@@ -1943,6 +1944,25 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
+           done = TRUE;
+         }
+       }
++      else if((CURLE_HTTP2_STREAM == result) &&
++                Curl_h2_http_1_1_error(data->easy_conn)) {
++        CURLcode ret = Curl_retry_request(data->easy_conn, &newurl);
++
++        infof(data, "Forcing HTTP/1.1 for NTLM");
++        data->set.httpversion = CURL_HTTP_VERSION_1_1;
++
++        if(!ret)
++          retry = (newurl)?TRUE:FALSE;
++        else
++          result = ret;
++
++        if(retry) {
++          /* if we are to retry, set the result to OK and consider the
++             request as done */
++          result = CURLE_OK;
++          done = TRUE;
++        }
++      }
+ 
+       if(result) {
+         /*
+-- 
+2.37.3
+
