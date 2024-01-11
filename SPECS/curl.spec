@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 30%{?dist}.3
+Release: 33%{?dist}
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -139,17 +139,17 @@ Patch47:  0047-curl-7.61.1-CVE-2023-23916.patch
 # fix FTP too eager connection reuse (CVE-2023-27535)
 Patch48:  0048-curl-7.61.1-CVE-2023-27535.patch
 
+# fix GSS delegation too eager connection re-use (CVE-2023-27536)
+Patch49:  0049-curl-7.61.1-CVE-2023-27536.patch
+
 # sftp: do not specify O_APPEND when not in append mode (#2187717)
 Patch50:  0050-curl-7.61.1-sftp-upload-flags.patch
 
-# fix GSS delegation too eager connection re-use
-Patch51:  0051-curl-7.61.1-CVE-2023-27536.patch
+# fix host name wildcard checking (CVE-2023-28321)
+Patch51:  0051-curl-7.61.1-CVE-2023-28321.patch
 
 # rebuild certs with 2048-bit RSA keys
-Patch52:  0052-curl-7.61.1-rebuilt-certs.patch
-
-# fix host name wildcard checking
-Patch53:  0053-curl-7.61.1-CVE-2023-28321.patch
+Patch52:  0052-curl-7.61.1-certs.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -372,10 +372,10 @@ sed -e 's|:8992/|:%{?__isa_bits}92/|g' -i tests/data/test97{3..6}
 %patch46 -p1
 %patch47 -p1
 %patch48 -p1
+%patch49 -p1
 %patch50 -p1
 %patch51 -p1
 git apply %{PATCH52}
-%patch53 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -538,15 +538,15 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Tue Jun 13 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-30.el8_8.3
-- fix GSS delegation too eager connection re-use (CVE-2023-27536)
-- rebuild certs with 2048-bit RSA keys
+* Tue Jun 27 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-33
 - fix host name wildcard checking (CVE-2023-28321)
+- rebuild certs with 2048-bit RSA keys
 
-* Thu Apr 20 2023 Kamil Dudka <kdudka@redhat.com> - 7.61.1-30.el8_8.2
+* Thu Apr 20 2023 Kamil Dudka <kdudka@redhat.com> - 7.61.1-32
 - sftp: do not specify O_APPEND when not in append mode (#2187717)
 
-* Fri Mar 24 2023 Kamil Dudka <kdudka@redhat.com> - 7.61.1-30.el8_8.1
+* Fri Mar 24 2023 Kamil Dudka <kdudka@redhat.com> - 7.61.1-31
+- fix GSS delegation too eager connection re-use (CVE-2023-27536)
 - fix FTP too eager connection reuse (CVE-2023-27535)
 
 * Wed Feb 15 2023 Kamil Dudka <kdudka@redhat.com> - 7.61.1-30
