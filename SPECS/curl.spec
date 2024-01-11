@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 23%{?dist}.4
+Release: 26%{?dist}.2
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -74,20 +74,32 @@ Patch23:  0023-curl-7.76.1-CVE-2022-43552.patch
 # fix HTTP multi-header compression denial of service (CVE-2023-23916)
 Patch24:  0024-curl-7.76.1-CVE-2023-23916.patch
 
+# fix TELNET option IAC injection (CVE-2023-27533)
+Patch25:  0025-curl-7.76.1-CVE-2023-27533.patch
+
+# fix SFTP path ~ resolving discrepancy (CVE-2023-27534)
+Patch26:  0026-curl-7.76.1-CVE-2023-27534.patch
+
 # fix FTP too eager connection reuse (CVE-2023-27535)
 Patch27:  0027-curl-7.76.1-CVE-2023-27535.patch
 
-# fix host name wildcard checking (CVE-2023-28321)
-Patch28:  0028-curl-7.76.1-CVE-2023-28321.patch
+# fix GSS delegation too eager connection re-use (CVE-2023-27536)
+Patch28:  0028-curl-7.76.1-CVE-2023-27536.patch
+
+# fix SSH connection too eager reuse still (CVE-2023-27538)
+Patch29:  0029-curl-7.76.1-CVE-2023-27538.patch
 
 # unify the upload/method handling (CVE-2023-28322)
-Patch29:  0029-curl-7.76.1-CVE-2023-28322.patch
+Patch30:  0030-curl-7.76.1-CVE-2023-28322.patch
+
+# fix host name wildcard checking
+Patch31:  0031-curl-7.76.1-CVE-2023-28321.patch
 
 # return error if hostname too long for remote resolve (CVE-2023-38545)
-Patch30:  0030-curl-7.76.1-CVE-2023-38545.patch
+Patch32:  0032-curl-7.76.1-CVE-2023-38545.patch
 
 # fix cookie injection with none file (CVE-2023-38546)
-Patch31:  0031-curl-7.61.1-CVE-2023-38546.patch
+Patch33:  0033-curl-7.61.1-CVE-2023-38546.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -287,11 +299,15 @@ be installed.
 %patch22 -p1
 %patch23 -p1
 %patch24 -p1
+%patch25 -p1
+%patch26 -p1
 %patch27 -p1
 %patch28 -p1
 %patch29 -p1
 %patch30 -p1
 %patch31 -p1
+%patch32 -p1
+%patch33 -p1
 
 # Fedora patches
 %patch101 -p1
@@ -517,18 +533,25 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Thu Oct 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-23.el9_2.4
+* Thu Oct 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26.el9_3.2
 - fix cookie injection with none file (CVE-2023-38546)
 
-* Tue Oct 10 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-23.el9_2.3
-- return error if hostname too long for remote resolve (CVE-2023-38545)
+* Tue Oct 10 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26.el9_3.1
+- socks: return error if hostname too long for remote resolve (CVE-2023-38545)
 
-* Tue Jun 27 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-23.el9_2.2
-- fix host name wildcard checking (CVE-2023-28321)
+* Mon Jun 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26
 - unify the upload/method handling (CVE-2023-28322)
+- fix host name wildcard checking (CVE-2023-28321)
 
-* Fri Mar 24 2023 Kamil Dudka <kdudka@redhat.com> - 7.76.1-23.el9_2.1
+* Wed Apr 12 2023 Kamil Dudka <kdudka@redhat.com> - 7.76.1-25
+- adapt the fix of CVE-2023-27535 for RHEL 9 curl
+
+* Fri Mar 24 2023 Kamil Dudka <kdudka@redhat.com> - 7.76.1-24
+- fix SSH connection too eager reuse still (CVE-2023-27538)
+- fix GSS delegation too eager connection re-use (CVE-2023-27536)
 - fix FTP too eager connection reuse (CVE-2023-27535)
+- fix SFTP path ~ resolving discrepancy (CVE-2023-27534)
+- fix TELNET option IAC injection (CVE-2023-27533)
 
 * Wed Feb 15 2023 Kamil Dudka <kdudka@redhat.com> - 7.76.1-23
 - fix HTTP multi-header compression denial of service (CVE-2023-23916)
