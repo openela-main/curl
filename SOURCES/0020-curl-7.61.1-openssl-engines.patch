@@ -1,0 +1,33 @@
+From 032843be4cefcb163d15573d15a228680e771106 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Mon, 24 Sep 2018 08:26:58 +0200
+Subject: [PATCH] openssl: load built-in engines too
+
+Regression since 38203f1
+
+Reported-by: Jean Fabrice
+Fixes #3023
+Closes #3040
+
+Upstream-commit: e2dd435d473cdc97785df95d032276fafb4b7746
+Signed-off-by: Kamil Dudka <kdudka@redhat.com>
+---
+ lib/vtls/openssl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
+index 78970d1..d8bcc4f 100644
+--- a/lib/vtls/openssl.c
++++ b/lib/vtls/openssl.c
+@@ -979,7 +979,7 @@ static int Curl_ossl_init(void)
+ 
+   OPENSSL_load_builtin_modules();
+ 
+-#ifdef HAVE_ENGINE_LOAD_BUILTIN_ENGINES
++#ifdef USE_OPENSSL_ENGINE
+   ENGINE_load_builtin_engines();
+ #endif
+ 
+-- 
+2.25.4
+

@@ -1,0 +1,43 @@
+From 9ea407a0476d22cde575826c18b5aa56b57ac9b4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Felix=20H=C3=A4dicke?= <felixhaedicke@web.de>
+Date: Wed, 23 Jan 2019 23:10:39 +0100
+Subject: [PATCH] setopt: enable CURLOPT_SSH_KNOWNHOSTS and
+ CURLOPT_SSH_KEYFUNCTION for libssh
+
+CURLOPT_SSH_KNOWNHOSTS and CURLOPT_SSH_KEYFUNCTION are supported for
+libssh as well. So accepting these options only when compiling with
+libssh2 is wrong here.
+
+Fixes #3493
+Closes #3494
+
+Upstream-commit: 3cbf731d9ec7146f9f1a6ac0fbd9af7fe358f5bb
+Signed-off-by: Kamil Dudka <kdudka@redhat.com>
+---
+ lib/setopt.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/lib/setopt.c b/lib/setopt.c
+index b07ccfe..88a05ff 100644
+--- a/lib/setopt.c
++++ b/lib/setopt.c
+@@ -2208,7 +2208,7 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option,
+     result = Curl_setstropt(&data->set.str[STRING_SSH_HOST_PUBLIC_KEY_MD5],
+                             va_arg(param, char *));
+     break;
+-#ifdef HAVE_LIBSSH2_KNOWNHOST_API
++
+   case CURLOPT_SSH_KNOWNHOSTS:
+     /*
+      * Store the file name to read known hosts from.
+@@ -2229,7 +2229,6 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option,
+      */
+     data->set.ssh_keyfunc_userp = va_arg(param, void *);
+     break;
+-#endif /* HAVE_LIBSSH2_KNOWNHOST_API */
+ #endif /* USE_LIBSSH2 */
+ 
+   case CURLOPT_HTTP_TRANSFER_DECODING:
+-- 
+2.34.1
+
