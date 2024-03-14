@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 26%{?dist}.2
+Release: 26%{?dist}.3
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -100,6 +100,12 @@ Patch32:  0032-curl-7.76.1-CVE-2023-38545.patch
 
 # fix cookie injection with none file (CVE-2023-38546)
 Patch33:  0033-curl-7.61.1-CVE-2023-38546.patch
+
+# cap SFTP packet size sent (RHEL-14837)
+Patch34:  0034-curl-7.61.1-64K-sftp.patch
+
+# lowercase the domain names before PSL checks (CVE-2023-46218)
+Patch35:  0035-curl-7.76.1-CVE-2023-46218.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -308,6 +314,8 @@ be installed.
 %patch31 -p1
 %patch32 -p1
 %patch33 -p1
+%patch34 -p1
+%patch35 -p1
 
 # Fedora patches
 %patch101 -p1
@@ -533,6 +541,10 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Tue Nov 28 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26.el9_3.3
+- cap SFTP packet size sent (RHEL-14837)
+- lowercase the domain names before PSL checks (CVE-2023-46218)
+
 * Thu Oct 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26.el9_3.2
 - fix cookie injection with none file (CVE-2023-38546)
 
