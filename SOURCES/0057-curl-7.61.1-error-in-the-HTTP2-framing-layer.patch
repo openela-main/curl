@@ -1,0 +1,15 @@
+diff -up curl-7.61.1/lib/http2.c.c1b6a384 curl-7.61.1/lib/http2.c
+--- curl-7.61.1/lib/http2.c.c1b6a384	2023-08-07 13:59:18.482137005 +0200
++++ curl-7.61.1/lib/http2.c	2023-08-07 14:03:42.043463284 +0200
+@@ -1467,6 +1467,11 @@ static ssize_t http2_recv(struct connect
+   if(should_close_session(httpc)) {
+     H2BUGF(infof(data,
+                  "http2_recv: nothing to do in this session\n"));
++    if(conn->bits.close) {
++      /* already marked for closure, return OK and we're done */
++      *err = CURLE_OK;
++      return 0;
++    }
+     *err = CURLE_HTTP2;
+     return -1;
+   }
