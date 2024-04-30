@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 26%{?dist}.3
+Release: 29%{?dist}
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -95,17 +95,20 @@ Patch30:  0030-curl-7.76.1-CVE-2023-28322.patch
 # fix host name wildcard checking
 Patch31:  0031-curl-7.76.1-CVE-2023-28321.patch
 
-# return error if hostname too long for remote resolve (CVE-2023-38545)
-Patch32:  0032-curl-7.76.1-CVE-2023-38545.patch
+# when keyboard-interactive auth fails, try password
+Patch32:  0032-curl-7.76.1-password-when-keyboard-interactive-fails.patch
+
+# return error if hostname too long for remote resolve
+Patch33:  0033-curl-7.76.1-CVE-2023-38545.patch
 
 # fix cookie injection with none file (CVE-2023-38546)
-Patch33:  0033-curl-7.61.1-CVE-2023-38546.patch
+Patch34:  0034-curl-7.76.1-CVE-2023-38546.patch
 
-# cap SFTP packet size sent (RHEL-14837)
-Patch34:  0034-curl-7.61.1-64K-sftp.patch
+# cap SFTP packet size sent (RHEL-14697)
+Patch35:  0035-curl-7.76.1-64K-sftp.patch
 
 # lowercase the domain names before PSL checks (CVE-2023-46218)
-Patch35:  0035-curl-7.76.1-CVE-2023-46218.patch
+Patch36:  0036-curl-7.76.1-CVE-2023-46218.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -316,6 +319,7 @@ be installed.
 %patch33 -p1
 %patch34 -p1
 %patch35 -p1
+%patch36 -p1
 
 # Fedora patches
 %patch101 -p1
@@ -541,15 +545,17 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Tue Nov 28 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26.el9_3.3
-- cap SFTP packet size sent (RHEL-14837)
+* Wed Mar 6 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-29
+- rebuild for 9.4 GA
+
+* Tue Oct 10 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-28
+- return error if hostname too long for remote resolve (CVE-2023-38545)
+- fix cookie injection with none file (CVE-2023-38546)
+- cap SFTP packet size sent (RHEL-14697)
 - lowercase the domain names before PSL checks (CVE-2023-46218)
 
-* Thu Oct 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26.el9_3.2
-- fix cookie injection with none file (CVE-2023-38546)
-
-* Tue Oct 10 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26.el9_3.1
-- socks: return error if hostname too long for remote resolve (CVE-2023-38545)
+* Tue Sep 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-27
+- when keyboard-interactive auth fails, try password (#2229800)
 
 * Mon Jun 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-26
 - unify the upload/method handling (CVE-2023-28322)
