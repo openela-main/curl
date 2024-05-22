@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 33%{?dist}.5
+Release: 34%{?dist}
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -154,26 +154,26 @@ Patch52:  0052-curl-7.61.1-certs.patch
 # when keyboard-interactive auth fails, try password
 Patch53:  0053-curl-7.61.1-password-when-keyboard-interactive-fails.patch
 
-# fix cookie injection with none file (CVE-2023-38546)
-Patch54:  0054-curl-7.61.1-CVE-2023-38546.patch
+# cap SFTP packet size sent
+Patch54:  0054-curl-7.61.1-64K-sftp.patch
 
 # unify the upload/method handling (CVE-2023-28322)
 Patch55:  0055-curl-7.61.1-CVE-2023-28322.patch
 
+# fix cookie injection with none file (CVE-2023-38546)
+Patch56:  0056-curl-7.61.1-CVE-2023-38546.patch
+
 # consolidate nghttp2_session_mem_recv() call paths
-Patch56:  0056-curl-7.61.1-consolidate-nghttp2-session-mem-recv.patch
+Patch57:  0057-curl-7.61.1-consolidate-nghttp2-session-mem-recv.patch
 
 # when marked for closure and wanted to close == OK
-Patch57:  0057-curl-7.61.1-error-in-the-HTTP2-framing-layer.patch
+Patch58:  0058-curl-7.61.1-error-in-the-HTTP2-framing-layer.patch
 
 # lowercase the domain names before PSL checks (CVE-2023-46218)
-Patch58:  0058-curl-7.61.1-CVE-2023-46218.patch
+Patch59:  0059-curl-7.61.1-CVE-2023-46218.patch
 
 # lowercase headernames
-Patch59:  0059-curl-7.61.1-lowercase-headernames.patch
-
-# cap SFTP packet size sent
-Patch60:  0060-curl-7.61.1-64K-sftp.patch
+Patch60:  0060-curl-7.61.1-lowercase-headernames.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -570,22 +570,13 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Wed Jan 24 2024 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-33.el8_9.5
-- cap SFTP packet size sent (RHEL-5485)
-
-* Tue Dec 05 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-33.el8_9.4
+* Tue Sep 19 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34
+- when keyboard-interactive auth fails, try password (#2229800)
+- cap SFTP packet size sent (RHEL-5311)
 - unify the upload/method handling (CVE-2023-28322)
-- fix HTTP2 connection failure with HTTP2 framing layer (RHEL-15296)
-- lowercase the domain names before PSL checks (CVE-2023-46218)
-
-* Thu Oct 12 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-33.el8_9.3
 - fix cookie injection with none file (CVE-2023-38546)
-
-* Mon Sep 25 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-33.el8_9.2
-- fix 'incompatible pointer type' reported by OpenScanHub (#2240033)
-
-* Fri Sep 22 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-33.el8_9.1
-- when keyboard-interactive auth fails, try password (#2240033)
+- fix HTTP2 connection failure with HTTP2 framing layer (RHEL-5657)
+- lowercase the domain names before PSL checks (CVE-2023-46218)
 
 * Tue Jun 27 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-33
 - fix host name wildcard checking (CVE-2023-28321)
