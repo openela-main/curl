@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 29%{?dist}
+Release: 29%{?dist}.1
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -109,6 +109,9 @@ Patch35:  0035-curl-7.76.1-64K-sftp.patch
 
 # lowercase the domain names before PSL checks (CVE-2023-46218)
 Patch36:  0036-curl-7.76.1-CVE-2023-46218.patch
+
+# provide common cleanup method for push headers (CVE-2024-2398)
+Patch37:  0037-curl-7.76.1-CVE-2024-2398.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -320,6 +323,7 @@ be installed.
 %patch34 -p1
 %patch35 -p1
 %patch36 -p1
+%patch37 -p1
 
 # Fedora patches
 %patch101 -p1
@@ -545,6 +549,9 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Thu Jun 6 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-29.el9_4.1
+- provide common cleanup method for push headers (CVE-2024-2398)
+
 * Wed Mar 6 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-29
 - rebuild for 9.4 GA
 
