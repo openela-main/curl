@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}
+Release: 34%{?dist}.2
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -174,6 +174,9 @@ Patch59:  0059-curl-7.61.1-CVE-2023-46218.patch
 
 # lowercase headernames
 Patch60:  0060-curl-7.61.1-lowercase-headernames.patch
+
+# provide common cleanup method for push headers (CVE-2024-2398)
+Patch61:  0061-curl-7.61.1-CVE-2024-2398.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -408,6 +411,7 @@ git apply %{PATCH52}
 %patch58 -p1
 %patch59 -p1
 %patch60 -p1
+%patch61 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -570,6 +574,12 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Wed Aug 14 2024 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.2
+- provide common cleanup method for push headers (CVE-2024-2398)
+
+* Tue Jun 25 2024 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.1
+- fix incorrect backport of bz2229800 (RHEL-44684)
+
 * Tue Sep 19 2023 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34
 - when keyboard-interactive auth fails, try password (#2229800)
 - cap SFTP packet size sent (RHEL-5311)
