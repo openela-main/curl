@@ -1,0 +1,14 @@
+diff -up curl-7.76.1/lib/vtls/openssl.c.ignore_unexpected_eof curl-7.76.1/lib/vtls/openssl.c
+--- curl-7.76.1/lib/vtls/openssl.c.ignore_unexpected_eof	2024-06-17 07:03:17.428620354 +0200
++++ curl-7.76.1/lib/vtls/openssl.c	2024-06-17 07:03:54.125799894 +0200
+@@ -2761,6 +2761,10 @@ static CURLcode ossl_connect_step1(struc
+       return CURLE_SSL_CONNECT_ERROR;
+   }
+ 
++#ifdef SSL_OP_IGNORE_UNEXPECTED_EOF
++  ctx_options |= SSL_OP_IGNORE_UNEXPECTED_EOF;
++#endif
++
+   SSL_CTX_set_options(backend->ctx, ctx_options);
+ 
+ #ifdef HAS_NPN

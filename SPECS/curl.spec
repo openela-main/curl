@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 29%{?dist}.1
+Release: 31%{?dist}
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -110,8 +110,11 @@ Patch35:  0035-curl-7.76.1-64K-sftp.patch
 # lowercase the domain names before PSL checks (CVE-2023-46218)
 Patch36:  0036-curl-7.76.1-CVE-2023-46218.patch
 
+# ignore unexpected EOF (RHEL-39995)
+Patch37:  0037-curl-7.76.1-ignore-unexpected-eof.patch
+
 # provide common cleanup method for push headers (CVE-2024-2398)
-Patch37:  0037-curl-7.76.1-CVE-2024-2398.patch
+Patch38:  0038-curl-7.76.1-CVE-2024-2398.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -324,6 +327,7 @@ be installed.
 %patch35 -p1
 %patch36 -p1
 %patch37 -p1
+%patch38 -p1
 
 # Fedora patches
 %patch101 -p1
@@ -354,6 +358,39 @@ printf "702\n703\n716\n" >> tests/data/DISABLED
 %ifarch aarch64
 printf "2034\n2037\n2041\n" >> tests/data/DISABLED
 %endif
+
+# temporarily (really!, not like these above) disable tests related to openssl
+# and reported by valgrind. All of it are failing with similar stack trace:
+#=== Start of file valgrind3000
+# ==92709== Syscall param openat(filename) points to unaddressable byte(s)
+# ==92709==    at 0x49D9784: open (open64.c:48)
+# ==92709==    by 0x495E095: _IO_file_open (fileops.c:189)
+# ==92709==    by 0x495E26A: _IO_file_fopen@@GLIBC_2.2.5 (fileops.c:281)
+# ==92709==    by 0x49524CC: __fopen_internal (iofopen.c:75)
+# ==92709==    by 0x4B37F2E: load_system_str (ssl_ciph.c:1472)
+# ==92709==    by 0x4B43118: ssl_create_cipher_list (ssl_ciph.c:1528)
+# ==92709==    by 0x4B4FCFF: UnknownInlinedFun (ssl_lib.c:3938)
+# ==92709==    by 0x4B4FCFF: SSL_CTX_new_ex (ssl_lib.c:3823)
+# ==92709==    by 0x48ABFA1: ossl_connect_step1.lto_priv.0 (openssl.c:2621)
+# ==92709==    by 0x48BAF16: ossl_connect_common (openssl.c:4042)
+# ==92709==    by 0x48B3D16: UnknownInlinedFun (vtls.c:370)
+# ==92709==    by 0x48B3D16: Curl_ssl_connect_nonblocking (vtls.c:353)
+# ==92709==    by 0x48873BB: UnknownInlinedFun (http.c:1595)
+# ==92709==    by 0x48873BB: Curl_http_connect (http.c:1518)
+# ==92709==    by 0x4895575: UnknownInlinedFun (multi.c:1514)
+# ==92709==    by 0x4895575: multi_runsingle (multi.c:1847)
+# ==92709==    by 0x48978AD: curl_multi_perform (multi.c:2403)
+# ==92709==    by 0x4874152: UnknownInlinedFun (easy.c:606)
+# ==92709==    by 0x4874152: UnknownInlinedFun (easy.c:696)
+# ==92709==    by 0x4874152: curl_easy_perform (easy.c:715)
+# ==92709==    by 0x11478B: UnknownInlinedFun (tool_operate.c:2379)
+# ==92709==    by 0x11478B: UnknownInlinedFun (tool_operate.c:2553)
+# ==92709==    by 0x11478B: UnknownInlinedFun (tool_operate.c:2669)
+# ==92709==    by 0x11478B: main (tool_main.c:277)
+# ==92709==  Address 0xffffffffff000804 is not stack'd, malloc'd or (recently) free'd
+# ==92709==
+#=== End of file valgrind3000
+printf "300\n301\n303\n304\n305\n306\n309\n310\n311\n312\n313\n320\n321\n322\n324\n325\n400\n401\n403\n404\n405\n406\n407\n408\n409\n410\n560\n1272\n1561\n1562\n1630\n1631\n1632\n2034\n2035\n2037\n2038\n2041\n2042\n2048\n3000\n3001\n" >> tests/data/DISABLED
 
 # adapt test 323 for updated OpenSSL
 sed -e 's|^35$|35,52|' -i tests/data/test323
@@ -549,8 +586,11 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Thu Jun 6 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-29.el9_4.1
+* Thu Aug 22 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-31
 - provide common cleanup method for push headers (CVE-2024-2398)
+
+* Tue Jun 18 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-30
+- ignore unexpected EOF (RHEL-39995)
 
 * Wed Mar 6 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-29
 - rebuild for 9.4 GA
