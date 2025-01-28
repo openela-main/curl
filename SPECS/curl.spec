@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}.2
+Release: 34%{?dist}.3
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -178,6 +178,12 @@ Patch60:  0060-curl-7.61.1-lowercase-headernames.patch
 # provide common cleanup method for push headers (CVE-2024-2398)
 Patch61:  0061-curl-7.61.1-CVE-2024-2398.patch
 
+# asyn-thread: create a socketpair to wait on
+Patch62:  0062-curl-7.61.1-socketpair-to-wait-on.patch
+
+# fix crash, when talking to a NTLM proxy in FIPS mode
+Patch63:  0063-curl-7.61.1-native-md5.patch
+
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
 
@@ -338,80 +344,82 @@ be installed.
 %setup -q
 
 # upstream patches
-%patch1 -p1
-%patch2 -p1
-%patch3 -p1
+%patch -P 1 -p1
+%patch -P 2 -p1
+%patch -P 3 -p1
 git init
 git apply %{PATCH4}
-%patch5 -p1
-%patch6 -p1
-%patch7 -p1
-%patch8 -p1
-%patch9 -p1
-%patch10 -p1
-%patch11 -p1
-%patch14 -p1
+%patch -P 5 -p1
+%patch -P 6 -p1
+%patch -P 7 -p1
+%patch -P 8 -p1
+%patch -P 9 -p1
+%patch -P 10 -p1
+%patch -P 11 -p1
+%patch -P 14 -p1
 
 # Fedora patches
-%patch101 -p1
-%patch102 -p1
-%patch103 -p1
-%patch104 -p1
+%patch -P 101 -p1
+%patch -P 102 -p1
+%patch -P 103 -p1
+%patch -P 104 -p1
 
 # use different port range for 32bit and 64bit builds, thus make it possible
 # to run both the builds in parallel on the same machine
-%patch105 -p1
+%patch -P 105 -p1
 sed -e 's|%%HTTPPORT|%{?__isa_bits}90|g' -i tests/data/test1448
 
 # upstream patches
-%patch17 -p1
-%patch18 -p1
-%patch19 -p1
-%patch20 -p1
-%patch21 -p1
-%patch22 -p1
-%patch23 -p1
-%patch24 -p1
-%patch25 -p1
-%patch26 -p1
-%patch27 -p1
-%patch28 -p1
-%patch29 -p1
-%patch30 -p1
-%patch31 -p1
-%patch32 -p1
-%patch33 -p1
-%patch34 -p1
-%patch35 -p1
-%patch36 -p1
-%patch37 -p1
+%patch -P 17 -p1
+%patch -P 18 -p1
+%patch -P 19 -p1
+%patch -P 20 -p1
+%patch -P 21 -p1
+%patch -P 22 -p1
+%patch -P 23 -p1
+%patch -P 24 -p1
+%patch -P 25 -p1
+%patch -P 26 -p1
+%patch -P 27 -p1
+%patch -P 28 -p1
+%patch -P 29 -p1
+%patch -P 30 -p1
+%patch -P 31 -p1
+%patch -P 32 -p1
+%patch -P 33 -p1
+%patch -P 34 -p1
+%patch -P 35 -p1
+%patch -P 36 -p1
+%patch -P 37 -p1
 
-%patch38 -p1
+%patch -P 38 -p1
 sed -e 's|:8992/|:%{?__isa_bits}92/|g' -i tests/data/test97{3..6}
 
-%patch39 -p1
-%patch40 -p1
-%patch41 -p1
-%patch42 -p1
-%patch43 -p1
-%patch44 -p1
-%patch45 -p1
-%patch46 -p1
-%patch47 -p1
-%patch48 -p1
-%patch49 -p1
-%patch50 -p1
-%patch51 -p1
+%patch -P 39 -p1
+%patch -P 40 -p1
+%patch -P 41 -p1
+%patch -P 42 -p1
+%patch -P 43 -p1
+%patch -P 44 -p1
+%patch -P 45 -p1
+%patch -P 46 -p1
+%patch -P 47 -p1
+%patch -P 48 -p1
+%patch -P 49 -p1
+%patch -P 50 -p1
+%patch -P 51 -p1
 git apply %{PATCH52}
-%patch53 -p1
-%patch54 -p1
-%patch55 -p1
-%patch56 -p1
-%patch57 -p1
-%patch58 -p1
-%patch59 -p1
-%patch60 -p1
-%patch61 -p1
+%patch -P 53 -p1
+%patch -P 54 -p1
+%patch -P 55 -p1
+%patch -P 56 -p1
+%patch -P 57 -p1
+%patch -P 58 -p1
+%patch -P 59 -p1
+%patch -P 60 -p1
+%patch -P 61 -p1
+%patch -P 62 -p1
+%patch -P 63 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -574,6 +582,10 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Wed Oct 30 2024 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.3
+- asyn-thread: create a socketpair to wait on (RHEL-34906)
+- fix crash, when talking to a NTLM proxy in FIPS mode (RHEL-32641)
+
 * Wed Aug 14 2024 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.2
 - provide common cleanup method for push headers (CVE-2024-2398)
 

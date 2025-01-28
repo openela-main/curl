@@ -1,0 +1,279 @@
+diff -up curl-7.61.1/lib/curl_md5.h.RHEL-32335 curl-7.61.1/lib/curl_md5.h
+--- curl-7.61.1/lib/curl_md5.h.RHEL-32335	2024-04-10 10:09:36.758098940 +0200
++++ curl-7.61.1/lib/curl_md5.h	2024-04-10 10:10:22.426370509 +0200
+@@ -49,8 +49,8 @@ typedef struct {
+ extern const MD5_params Curl_DIGEST_MD5[1];
+ extern const HMAC_params Curl_HMAC_MD5[1];
+ 
+-void Curl_md5it(unsigned char *output,
+-                const unsigned char *input);
++void Curl_md5it(unsigned char *output, const unsigned char *input,
++                const size_t len);
+ 
+ MD5_context * Curl_MD5_init(const MD5_params *md5params);
+ int Curl_MD5_update(MD5_context *context,
+diff -up curl-7.61.1/lib/curl_ntlm_core.h.RHEL-32335 curl-7.61.1/lib/curl_ntlm_core.h
+--- curl-7.61.1/lib/curl_ntlm_core.h.RHEL-32335	2024-04-10 09:52:39.872042425 +0200
++++ curl-7.61.1/lib/curl_ntlm_core.h	2024-04-10 09:54:46.230795176 +0200
+@@ -48,9 +48,9 @@
+ #endif
+ 
+ /* Define USE_NTLM2SESSION in order to make the type-3 message include the
+-   NTLM2Session response message, requires USE_NTRESPONSES defined to 1 and a
+-   Crypto engine that we have curl_ssl_md5sum() for. */
+-#if defined(USE_NTRESPONSES) && !defined(USE_WIN32_CRYPTO)
++   NTLM2Session response message, requires USE_NTRESPONSES defined to 1 and
++   MD5 support */
++#if defined(USE_NTRESPONSES) && !defined(CURL_DISABLE_CRYPTO_AUTH)
+ #define USE_NTLM2SESSION
+ #endif
+ 
+diff -up curl-7.61.1/lib/curl_sha256.h.RHEL-32335 curl-7.61.1/lib/curl_sha256.h
+--- curl-7.61.1/lib/curl_sha256.h.RHEL-32335	2024-04-10 10:13:40.975551190 +0200
++++ curl-7.61.1/lib/curl_sha256.h	2024-04-10 10:14:00.251665815 +0200
+@@ -24,8 +24,8 @@
+ 
+ #ifndef CURL_DISABLE_CRYPTO_AUTH
+ 
+-void Curl_sha256it(unsigned char *outbuffer,
+-                const unsigned char *input);
++void Curl_sha256it(unsigned char *outbuffer, const unsigned char *input,
++                   const size_t len);
+ 
+ #endif
+ 
+diff -up curl-7.61.1/lib/md5.c.RHEL-32335 curl-7.61.1/lib/md5.c
+--- curl-7.61.1/lib/md5.c.RHEL-32335	2024-04-10 10:10:39.831474009 +0200
++++ curl-7.61.1/lib/md5.c	2024-04-10 10:13:29.963485706 +0200
+@@ -519,12 +519,13 @@ const MD5_params Curl_DIGEST_MD5[] = {
+ /*
+  * @unittest: 1601
+  */
+-void Curl_md5it(unsigned char *outbuffer, /* 16 bytes */
+-                const unsigned char *input)
++void Curl_md5it(unsigned char *outbuffer, const unsigned char *input,
++                const size_t len)
+ {
+   MD5_CTX ctx;
++
+   MD5_Init(&ctx);
+-  MD5_Update(&ctx, input, curlx_uztoui(strlen((char *)input)));
++  MD5_Update(&ctx, input, curlx_uztoui(len));
+   MD5_Final(outbuffer, &ctx);
+ }
+ 
+diff -up curl-7.61.1/lib/sha256.c.RHEL-32335 curl-7.61.1/lib/sha256.c
+--- curl-7.61.1/lib/sha256.c.RHEL-32335	2024-04-10 10:14:32.047854892 +0200
++++ curl-7.61.1/lib/sha256.c	2024-04-10 10:15:23.010157942 +0200
+@@ -255,12 +255,13 @@ static int SHA256_Final(unsigned char *o
+ 
+ #endif
+ 
+-void Curl_sha256it(unsigned char *outbuffer, /* 32 unsigned chars */
+-                   const unsigned char *input)
++void Curl_sha256it(unsigned char *outbuffer, const unsigned char *input,
++                   const size_t len)
+ {
+   SHA256_CTX ctx;
++
+   SHA256_Init(&ctx);
+-  SHA256_Update(&ctx, input, curlx_uztoui(strlen((char *)input)));
++  SHA256_Update(&ctx, input, curlx_uztoui(len));
+   SHA256_Final(outbuffer, &ctx);
+ }
+ 
+diff -up curl-7.61.1/lib/vauth/digest.c.RHEL-32335 curl-7.61.1/lib/vauth/digest.c
+--- curl-7.61.1/lib/vauth/digest.c.RHEL-32335	2024-04-10 10:15:31.737209838 +0200
++++ curl-7.61.1/lib/vauth/digest.c	2024-04-10 10:20:11.293872233 +0200
+@@ -62,7 +62,7 @@
+    what ultimately goes over the network.
+ */
+ #define CURL_OUTPUT_DIGEST_CONV(a, b) \
+-  result = Curl_convert_to_network(a, (char *)b, strlen((const char *)b)); \
++  result = Curl_convert_to_network(a, b, strlen(b)); \
+   if(result) { \
+     free(b); \
+     return result; \
+@@ -687,12 +687,12 @@ static CURLcode _Curl_auth_create_digest
+                   struct digestdata *digest,
+                   char **outptr, size_t *outlen,
+                   void (*convert_to_ascii)(unsigned char *, unsigned char *),
+-                  void (*hash)(unsigned char *, const unsigned char *))
++                  void (*hash)(unsigned char *, const unsigned char *,
++                               const size_t))
+ {
+   CURLcode result;
+   unsigned char hashbuf[32]; /* 32 bytes/256 bits */
+   unsigned char request_digest[65];
+-  unsigned char *hashthis;
+   unsigned char ha1[65];    /* 64 digits and 1 zero byte */
+   unsigned char ha2[65];    /* 64 digits and 1 zero byte */
+   char userh[65];
+@@ -700,6 +700,7 @@ static CURLcode _Curl_auth_create_digest
+   size_t cnonce_sz = 0;
+   char *userp_quoted;
+   char *response = NULL;
++  char *hashthis = NULL;
+   char *tmp = NULL;
+ 
+   if(!digest->nc)
+@@ -721,12 +722,12 @@ static CURLcode _Curl_auth_create_digest
+   }
+ 
+   if(digest->userhash) {
+-    hashthis = (unsigned char *) aprintf("%s:%s", userp, digest->realm);
++    hashthis = aprintf("%s:%s", userp, digest->realm);
+     if(!hashthis)
+       return CURLE_OUT_OF_MEMORY;
+ 
+     CURL_OUTPUT_DIGEST_CONV(data, hashthis);
+-    hash(hashbuf, hashthis);
++    hash(hashbuf, (unsigned char *) hashthis, strlen(hashthis));
+     free(hashthis);
+     convert_to_ascii(hashbuf, (unsigned char *)userh);
+   }
+@@ -742,14 +743,13 @@ static CURLcode _Curl_auth_create_digest
+            unq(nonce-value) ":" unq(cnonce-value)
+   */
+ 
+-  hashthis = (unsigned char *)
+-    aprintf("%s:%s:%s", digest->userhash ? userh : userp,
+-                                    digest->realm, passwdp);
++  hashthis = aprintf("%s:%s:%s", digest->userhash ? userh : userp,
++                                 digest->realm, passwdp);
+   if(!hashthis)
+     return CURLE_OUT_OF_MEMORY;
+ 
+   CURL_OUTPUT_DIGEST_CONV(data, hashthis); /* convert on non-ASCII machines */
+-  hash(hashbuf, hashthis);
++  hash(hashbuf, (unsigned char *) hashthis, strlen(hashthis));
+   free(hashthis);
+   convert_to_ascii(hashbuf, ha1);
+ 
+@@ -762,7 +762,7 @@ static CURLcode _Curl_auth_create_digest
+       return CURLE_OUT_OF_MEMORY;
+ 
+     CURL_OUTPUT_DIGEST_CONV(data, tmp); /* Convert on non-ASCII machines */
+-    hash(hashbuf, (unsigned char *) tmp);
++    hash(hashbuf, (unsigned char *) tmp, strlen(tmp));
+     free(tmp);
+     convert_to_ascii(hashbuf, ha1);
+   }
+@@ -780,18 +780,18 @@ static CURLcode _Curl_auth_create_digest
+     5.1.1 of RFC 2616)
+   */
+ 
+-  hashthis = (unsigned char *) aprintf("%s:%s", request, uripath);
++  hashthis = aprintf("%s:%s", request, uripath);
+ 
+   if(digest->qop && strcasecompare(digest->qop, "auth-int")) {
+     /* We don't support auth-int for PUT or POST at the moment.
+        TODO: replace hash of empty string with entity-body for PUT/POST */
+     char hashed[65];
+-    unsigned char *hashthis2;
++    char *hashthis2;
+ 
+-    hash(hashbuf, (const unsigned char *)"");
++    hash(hashbuf, (const unsigned char *)"", 0);
+     convert_to_ascii(hashbuf, (unsigned char *)hashed);
+ 
+-    hashthis2 = (unsigned char *)aprintf("%s:%s", hashthis, hashed);
++    hashthis2 = aprintf("%s:%s", hashthis, hashed);
+     free(hashthis);
+     hashthis = hashthis2;
+   }
+@@ -800,31 +800,23 @@ static CURLcode _Curl_auth_create_digest
+     return CURLE_OUT_OF_MEMORY;
+ 
+   CURL_OUTPUT_DIGEST_CONV(data, hashthis); /* convert on non-ASCII machines */
+-  hash(hashbuf, hashthis);
++  hash(hashbuf, (unsigned char *) hashthis, strlen(hashthis));
+   free(hashthis);
+   convert_to_ascii(hashbuf, ha2);
+ 
+   if(digest->qop) {
+-    hashthis = (unsigned char *) aprintf("%s:%s:%08x:%s:%s:%s",
+-                                        ha1,
+-                                        digest->nonce,
+-                                        digest->nc,
+-                                        digest->cnonce,
+-                                        digest->qop,
+-                                        ha2);
++    hashthis = aprintf("%s:%s:%08x:%s:%s:%s", ha1, digest->nonce, digest->nc,
++                       digest->cnonce, digest->qop, ha2);
+   }
+   else {
+-    hashthis = (unsigned char *) aprintf("%s:%s:%s",
+-                                        ha1,
+-                                        digest->nonce,
+-                                        ha2);
++    hashthis = aprintf("%s:%s:%s", ha1, digest->nonce, ha2);
+   }
+ 
+   if(!hashthis)
+     return CURLE_OUT_OF_MEMORY;
+ 
+   CURL_OUTPUT_DIGEST_CONV(data, hashthis); /* convert on non-ASCII machines */
+-  hash(hashbuf, hashthis);
++  hash(hashbuf, (unsigned char *) hashthis, strlen(hashthis));
+   free(hashthis);
+   convert_to_ascii(hashbuf, request_digest);
+ 
+diff -up curl-7.61.1/lib/vauth/ntlm.c.RHEL-32335 curl-7.61.1/lib/vauth/ntlm.c
+--- curl-7.61.1/lib/vauth/ntlm.c.RHEL-32335	2024-04-10 09:51:15.114537483 +0200
++++ curl-7.61.1/lib/vauth/ntlm.c	2024-04-10 09:52:26.411962237 +0200
+@@ -40,6 +40,7 @@
+ #include "curl_ntlm_core.h"
+ #include "curl_gethostname.h"
+ #include "curl_multibyte.h"
++#include "curl_md5.h"
+ #include "warnless.h"
+ #include "rand.h"
+ #include "vtls/vtls.h"
+@@ -621,11 +622,10 @@ CURLcode Curl_auth_create_ntlm_type3_mes
+     memcpy(tmp, &ntlm->nonce[0], 8);
+     memcpy(tmp + 8, entropy, 8);
+ 
+-    result = Curl_ssl_md5sum(tmp, 16, md5sum, MD5_DIGEST_LENGTH);
+-    if(!result)
+-      /* We shall only use the first 8 bytes of md5sum, but the des code in
+-         Curl_ntlm_core_lm_resp only encrypt the first 8 bytes */
+-      result = Curl_ntlm_core_mk_nt_hash(data, passwdp, ntbuffer);
++    Curl_md5it(md5sum, tmp, 16);
++    /* We shall only use the first 8 bytes of md5sum, but the des code in
++       Curl_ntlm_core_lm_resp only encrypt the first 8 bytes */
++    result = Curl_ntlm_core_mk_nt_hash(data, passwdp, ntbuffer);
+     if(result)
+       return result;
+ 
+diff -up curl-7.61.1/tests/unit/unit1601.c.RHEL-32335 curl-7.61.1/tests/unit/unit1601.c
+--- curl-7.61.1/tests/unit/unit1601.c.RHEL-32335	2024-04-10 10:20:19.347920127 +0200
++++ curl-7.61.1/tests/unit/unit1601.c	2024-04-10 10:21:53.606480641 +0200
+@@ -36,18 +36,19 @@ static void unit_stop(void)
+ UNITTEST_START
+ 
+ #ifndef CURL_DISABLE_CRYPTO_AUTH
+-  unsigned char output[16];
++  const char string1[] = "1";
++  const char string2[] = "hello-you-fool";
++  unsigned char output[MD5_DIGEST_LEN];
+   unsigned char *testp = output;
+-  Curl_md5it(output, (const unsigned char *)"1");
+ 
+-/* !checksrc! disable LONGLINE 2 */
+-  verify_memory(testp,
+-                "\xc4\xca\x42\x38\xa0\xb9\x23\x82\x0d\xcc\x50\x9a\x6f\x75\x84\x9b", 16);
++  Curl_md5it(output, (const unsigned char *) string1, strlen(string1));
++  verify_memory(testp, "\xc4\xca\x42\x38\xa0\xb9\x23\x82\x0d\xcc\x50\x9a\x6f"
++                "\x75\x84\x9b", MD5_DIGEST_LEN);
+ 
+-  Curl_md5it(output, (const unsigned char *)"hello-you-fool");
++  Curl_md5it(output, (const unsigned char *) string2, strlen(string2));
+ 
+-  verify_memory(testp,
+-                "\x88\x67\x0b\x6d\x5d\x74\x2f\xad\xa5\xcd\xf9\xb6\x82\x87\x5f\x22", 16);
++  verify_memory(testp, "\x88\x67\x0b\x6d\x5d\x74\x2f\xad\xa5\xcd\xf9\xb6\x82"
++                "\x87\x5f\x22", MD5_DIGEST_LEN);
+ #endif
+ 
+ 
