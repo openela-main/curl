@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 31%{?dist}
+Release: 31%{?dist}.1
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -115,6 +115,9 @@ Patch37:  0037-curl-7.76.1-ignore-unexpected-eof.patch
 
 # provide common cleanup method for push headers (CVE-2024-2398)
 Patch38:  0038-curl-7.76.1-CVE-2024-2398.patch
+
+# make sure pause is done on HTTP
+Patch39:  0039-curl-7.76.1-pause-on-http.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -291,48 +294,49 @@ be installed.
 %setup -q
 
 # upstream patches
-%patch1 -p1
-%patch2 -p1
-%patch3 -p1
-%patch4 -p1
-%patch5 -p1
-%patch6 -p1
-%patch7 -p1
-%patch8 -p1
-%patch9 -p1
-%patch10 -p1
-%patch11 -p1
-%patch12 -p1
-%patch13 -p1
-%patch14 -p1
-%patch15 -p1
-%patch16 -p1
-%patch17 -p1
-%patch19 -p1
-%patch20 -p1
-%patch21 -p1
-%patch22 -p1
-%patch23 -p1
-%patch24 -p1
-%patch25 -p1
-%patch26 -p1
-%patch27 -p1
-%patch28 -p1
-%patch29 -p1
-%patch30 -p1
-%patch31 -p1
-%patch32 -p1
-%patch33 -p1
-%patch34 -p1
-%patch35 -p1
-%patch36 -p1
-%patch37 -p1
-%patch38 -p1
+%patch -P 1 -p1
+%patch -P 2 -p1
+%patch -P 3 -p1
+%patch -P 4 -p1
+%patch -P 5 -p1
+%patch -P 6 -p1
+%patch -P 7 -p1
+%patch -P 8 -p1
+%patch -P 9 -p1
+%patch -P 10 -p1
+%patch -P 11 -p1
+%patch -P 12 -p1
+%patch -P 13 -p1
+%patch -P 14 -p1
+%patch -P 15 -p1
+%patch -P 16 -p1
+%patch -P 17 -p1
+%patch -P 19 -p1
+%patch -P 20 -p1
+%patch -P 21 -p1
+%patch -P 22 -p1
+%patch -P 23 -p1
+%patch -P 24 -p1
+%patch -P 25 -p1
+%patch -P 26 -p1
+%patch -P 27 -p1
+%patch -P 28 -p1
+%patch -P 29 -p1
+%patch -P 30 -p1
+%patch -P 31 -p1
+%patch -P 32 -p1
+%patch -P 33 -p1
+%patch -P 34 -p1
+%patch -P 35 -p1
+%patch -P 36 -p1
+%patch -P 37 -p1
+%patch -P 38 -p1
+%patch -P 39 -p1
 
 # Fedora patches
-%patch101 -p1
-%patch102 -p1
-%patch105 -p1
+%patch -P 101 -p1
+%patch -P 102 -p1
+%patch -P 105 -p1
 
 # disable test 1112 (#565305), test 1455 (occasionally fails with 'bind failed
 # with errno 98: Address already in use' in Koji environment), and test 1801
@@ -586,6 +590,11 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Tue Dec 17 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-31.el9_6.1
+- make up incomplete patch for host name wildcard checking (RHEL-5675)
+- eliminate use of obsolete patch syntax (RHEL-65791)
+- http2: make sure pause is done on HTTP (RHEL-86805)
+
 * Thu Aug 22 2024 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-31
 - provide common cleanup method for push headers (CVE-2024-2398)
 
