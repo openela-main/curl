@@ -1,0 +1,338 @@
+From b1a049b4c024ea69ef571da8def3cc13889430f4 Mon Sep 17 00:00:00 2001
+From: Jay Satiro <raysatiro@yahoo.com>
+Date: Sun, 23 Feb 2020 18:37:09 -0500
+Subject: [PATCH] libssh: Fix matching user-specified MD5 hex key
+
+Prior to this change a match would never be successful because it
+was mistakenly coded to compare binary data from libssh to a
+user-specified hex string (ie CURLOPT_SSH_HOST_PUBLIC_KEY_MD5).
+
+Reported-by: fds242@users.noreply.github.com
+
+Fixes https://github.com/curl/curl/issues/4971
+Closes https://github.com/curl/curl/pull/4974
+(cherry picked from commit 09aa807240b9dcde78a919ff712316a1daf0655e)
+---
+ lib/ssh-libssh.c        | 20 ++++++++++++++++---
+ tests/FILEFORMAT        |  1 +
+ tests/data/Makefile.inc |  1 +
+ tests/data/test664      | 44 +++++++++++++++++++++++++++++++++++++++++
+ tests/data/test665      | 44 +++++++++++++++++++++++++++++++++++++++++
+ tests/runtests.pl       | 24 ++++++++++++++++++++++
+ tests/sshhelp.pm        |  3 +++
+ tests/sshserver.pl      | 31 +++++++++++++++++++++++++----
+ 8 files changed, 161 insertions(+), 7 deletions(-)
+ create mode 100644 tests/data/test664
+ create mode 100644 tests/data/test665
+
+diff --git a/lib/ssh-libssh.c b/lib/ssh-libssh.c
+index 7d590891c..c203d6336 100644
+--- a/lib/ssh-libssh.c
++++ b/lib/ssh-libssh.c
+@@ -327,13 +327,27 @@ static int myssh_is_known(struct connectdata *conn)
+     return rc;
+ 
+   if(data->set.str[STRING_SSH_HOST_PUBLIC_KEY_MD5]) {
++    int i;
++    char md5buffer[33];
++    const char *pubkey_md5 = data->set.str[STRING_SSH_HOST_PUBLIC_KEY_MD5];
++
+     rc = ssh_get_publickey_hash(pubkey, SSH_PUBLICKEY_HASH_MD5,
+                                 &hash, &hlen);
+-    if(rc != SSH_OK)
++    if(rc != SSH_OK || hlen != 16) {
++      failf(data,
++            "Denied establishing ssh session: md5 fingerprint not available");
+       goto cleanup;
++    }
++
++    for(i = 0; i < 16; i++)
++      snprintf(&md5buffer[i*2], 3, "%02x", (unsigned char)hash[i]);
++
++    infof(data, "SSH MD5 fingerprint: %s\n", md5buffer);
+ 
+-    if(hlen != strlen(data->set.str[STRING_SSH_HOST_PUBLIC_KEY_MD5]) ||
+-       memcmp(&data->set.str[STRING_SSH_HOST_PUBLIC_KEY_MD5], hash, hlen)) {
++    if(!strcasecompare(md5buffer, pubkey_md5)) {
++      failf(data,
++            "Denied establishing ssh session: mismatch md5 fingerprint. "
++            "Remote %s is not equal to %s", md5buffer, pubkey_md5);
+       rc = SSH_ERROR;
+       goto cleanup;
+     }
+diff --git a/tests/FILEFORMAT b/tests/FILEFORMAT
+index 135ded6c1..6b79093ab 100644
+--- a/tests/FILEFORMAT
++++ b/tests/FILEFORMAT
+@@ -368,6 +368,7 @@ Available substitute variables include:
+ %PWD       - Current directory
+ %RTSP6PORT - IPv6 port number of the RTSP server
+ %RTSPPORT  - Port number of the RTSP server
++%SSHSRVMD5 - MD5 of SSH server's public key
+ %SMTP6PORT - IPv6 port number of the SMTP server
+ %SMTPPORT  - Port number of the SMTP server
+ %SOCKSPORT - Port number of the SOCKS4/5 server
+diff --git a/tests/data/Makefile.inc b/tests/data/Makefile.inc
+index e0457486b..923b58a63 100644
+--- a/tests/data/Makefile.inc
++++ b/tests/data/Makefile.inc
+@@ -84,6 +84,7 @@ test626 test627 test628 test629 test630 test631 test632 test633 test634 \
+ test635 test636 test637 test638 test639 test640 test641 test642 \
+ test643 test644 test645 test646 test647 test648 test649 test650 test651 \
+ test652 test653 test654 test655 test656 \
++test664 test665 \
+ \
+ test700 test701 test702 test703 test704 test705 test706 test707 test708 \
+ test709 test710 test711 test712 test713 test714 test715 \
+diff --git a/tests/data/test664 b/tests/data/test664
+new file mode 100644
+index 000000000..cb73b248b
+--- /dev/null
++++ b/tests/data/test664
+@@ -0,0 +1,44 @@
++<testcase>
++<info>
++<keywords>
++SFTP
++server key check
++</keywords>
++</info>
++
++#
++# Server-side
++<reply>
++<data>
++test
++</data>
++</reply>
++
++#
++# Client-side
++<client>
++<server>
++sftp
++</server>
++ <name>
++SFTP correct host key
++ </name>
++ <command>
++--hostpubmd5 %SSHSRVMD5 --key curl_client_key --pubkey curl_client_key.pub -u %USER: sftp://%HOSTIP:%SSHPORT%POSIX_PWD/log/file664.txt
++</command>
++<file name="log/file664.txt">
++test
++</file>
++</client>
++
++#
++# Verify data after the test has been "shot"
++<verify>
++<errorcode>
++0
++</errorcode>
++<valgrind>
++disable
++</valgrind>
++</verify>
++</testcase>
+diff --git a/tests/data/test665 b/tests/data/test665
+new file mode 100644
+index 000000000..830adb8f6
+--- /dev/null
++++ b/tests/data/test665
+@@ -0,0 +1,44 @@
++<testcase>
++<info>
++<keywords>
++SCP
++server key check
++</keywords>
++</info>
++
++#
++# Server-side
++<reply>
++<data>
++test
++</data>
++</reply>
++
++#
++# Client-side
++<client>
++<server>
++scp
++</server>
++ <name>
++SCP correct host key
++ </name>
++ <command>
++--hostpubmd5 %SSHSRVMD5 --key curl_client_key --pubkey curl_client_key.pub -u %USER: scp://%HOSTIP:%SSHPORT%POSIX_PWD/log/file665.txt
++</command>
++<file name="log/file665.txt">
++test
++</file>
++</client>
++
++#
++# Verify data after the test has been "shot"
++<verify>
++<errorcode>
++0
++</errorcode>
++<valgrind>
++disable
++</valgrind>
++</verify>
++</testcase>
+diff --git a/tests/runtests.pl b/tests/runtests.pl
+index e12c1429a..4e2a19cf2 100755
+--- a/tests/runtests.pl
++++ b/tests/runtests.pl
+@@ -150,6 +150,8 @@ my $SMBPORT;             # SMB server port
+ my $SMBSPORT;            # SMBS server port
+ my $NEGTELNETPORT;       # TELNET server port with negotiation
+ 
++my $SSHSRVMD5;           # MD5 of ssh server public key
++
+ my $srcdir = $ENV{'srcdir'} || '.';
+ my $CURL="../src/curl".exe_ext(); # what curl executable to run on the tests
+ my $VCURL=$CURL;   # what curl binary to use to verify the servers with
+@@ -2181,6 +2183,18 @@ sub runsshserver {
+         return (0,0);
+     }
+ 
++    my $hstpubmd5f = "curl_host_rsa_key.pub_md5";
++    if(!open(PUBMD5FILE, "<", $hstpubmd5f) ||
++       (read(PUBMD5FILE, $SSHSRVMD5, 32) != 32) ||
++       !close(PUBMD5FILE) ||
++       ($SSHSRVMD5 !~ /^[a-f0-9]{32}$/i))
++    {
++        my $msg = "Fatal: $srvrname pubkey md5 missing : \"$hstpubmd5f\" : $!";
++        logmsg "$msg\n";
++        stopservers($verbose);
++        die $msg;
++    }
++
+     if($verbose) {
+         logmsg "RUN: $srvrname server is now running PID $pid2\n";
+     }
+@@ -3205,6 +3219,16 @@ sub subVariables {
+   $$thing =~ s/%SRCDIR/$srcdir/g;
+   $$thing =~ s/%USER/$USER/g;
+ 
++  if($$thing =~ /%SSHSRVMD5/) {
++      if(!$SSHSRVMD5) {
++          my $msg = "Fatal: Missing SSH server pubkey MD5. Is server running?";
++          logmsg "$msg\n";
++          stopservers($verbose);
++          die $msg;
++      }
++      $$thing =~ s/%SSHSRVMD5/$SSHSRVMD5/g;
++  }
++
+   # The purpose of FTPTIME2 and FTPTIME3 is to provide times that can be
+   # used for time-out tests and that whould work on most hosts as these
+   # adjust for the startup/check time for this particular host. We needed
+diff --git a/tests/sshhelp.pm b/tests/sshhelp.pm
+index c5618a109..abdf9c458 100644
+--- a/tests/sshhelp.pm
++++ b/tests/sshhelp.pm
+@@ -50,6 +50,7 @@ use vars qw(
+     $sftpcmds
+     $hstprvkeyf
+     $hstpubkeyf
++    $hstpubmd5f
+     $cliprvkeyf
+     $clipubkeyf
+     @sftppath
+@@ -82,6 +83,7 @@ use vars qw(
+     $sftpcmds
+     $hstprvkeyf
+     $hstpubkeyf
++    $hstpubmd5f
+     $cliprvkeyf
+     $clipubkeyf
+     display_sshdconfig
+@@ -122,6 +124,7 @@ $sftpcmds        = 'curl_sftp_cmds';         # sftp client commands batch file
+ $knownhosts      = 'curl_client_knownhosts'; # ssh knownhosts file
+ $hstprvkeyf      = 'curl_host_rsa_key';      # host private key file
+ $hstpubkeyf      = 'curl_host_rsa_key.pub';  # host public key file
++$hstpubmd5f      = 'curl_host_rsa_key.pub_md5';  # md5 hash of host public key
+ $cliprvkeyf      = 'curl_client_key';        # client private key file
+ $clipubkeyf      = 'curl_client_key.pub';    # client public key file
+ 
+diff --git a/tests/sshserver.pl b/tests/sshserver.pl
+index 9b3d122fd..cd92a62c5 100755
+--- a/tests/sshserver.pl
++++ b/tests/sshserver.pl
+@@ -28,6 +28,9 @@ use strict;
+ use warnings;
+ use Cwd;
+ use Cwd 'abs_path';
++use Digest::MD5;
++use Digest::MD5 'md5_hex';
++use MIME::Base64;
+ 
+ #***************************************************************************
+ # Variables and subs imported from sshhelp module
+@@ -48,6 +51,7 @@ use sshhelp qw(
+     $sftpcmds
+     $hstprvkeyf
+     $hstpubkeyf
++    $hstpubmd5f
+     $cliprvkeyf
+     $clipubkeyf
+     display_sshdconfig
+@@ -367,10 +371,11 @@ if((($sshid =~ /OpenSSH/) && ($sshvernum < 299)) ||
+ #
+ if((! -e $hstprvkeyf) || (! -s $hstprvkeyf) ||
+    (! -e $hstpubkeyf) || (! -s $hstpubkeyf) ||
++   (! -e $hstpubmd5f) || (! -s $hstpubmd5f) ||
+    (! -e $cliprvkeyf) || (! -s $cliprvkeyf) ||
+    (! -e $clipubkeyf) || (! -s $clipubkeyf)) {
+     # Make sure all files are gone so ssh-keygen doesn't complain
+-    unlink($hstprvkeyf, $hstpubkeyf, $cliprvkeyf, $clipubkeyf);
++    unlink($hstprvkeyf, $hstpubkeyf, $hstpubmd5f, $cliprvkeyf, $clipubkeyf);
+     logmsg 'generating host keys...' if($verbose);
+     if(system "\"$sshkeygen\" -q -t rsa -f $hstprvkeyf -C 'curl test server' -N ''") {
+         logmsg 'Could not generate host key';
+@@ -381,6 +386,24 @@ if((! -e $hstprvkeyf) || (! -s $hstprvkeyf) ||
+         logmsg 'Could not generate client key';
+         exit 1;
+     }
++    # Make sure that permissions are restricted so openssh doesn't complain
++    system "chmod 600 $hstprvkeyf";
++    system "chmod 600 $cliprvkeyf";
++    # Save md5 hash of public host key
++    open(RSAKEYFILE, "<$hstpubkeyf");
++    my @rsahostkey = do { local $/ = ' '; <RSAKEYFILE> };
++    close(RSAKEYFILE);
++    if(!$rsahostkey[1]) {
++        logmsg 'Failed parsing base64 encoded RSA host key';
++        exit 1;
++    }
++    open(PUBMD5FILE, ">$hstpubmd5f");
++    print PUBMD5FILE md5_hex(decode_base64($rsahostkey[1]));
++    close(PUBMD5FILE);
++    if((! -e $hstpubmd5f) || (! -s $hstpubmd5f)) {
++        logmsg 'Failed writing md5 hash of RSA host key';
++        exit 1;
++    }
+ }
+ 
+ 
+@@ -1073,8 +1096,8 @@ elsif($verbose && ($rc >> 8)) {
+ #***************************************************************************
+ # Clean up once the server has stopped
+ #
+-unlink($hstprvkeyf, $hstpubkeyf, $cliprvkeyf, $clipubkeyf, $knownhosts);
+-unlink($sshdconfig, $sshconfig, $sftpconfig);
+-
++unlink($hstprvkeyf, $hstpubkeyf, $hstpubmd5f,
++       $cliprvkeyf, $clipubkeyf, $knownhosts,
++       $sshdconfig, $sshconfig, $sftpconfig);
+ 
+ exit 0;
+-- 
+2.47.1
+

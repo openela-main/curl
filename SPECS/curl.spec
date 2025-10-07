@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}.3
+Release: 34%{?dist}.8
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -183,6 +183,18 @@ Patch62:  0062-curl-7.61.1-socketpair-to-wait-on.patch
 
 # fix crash, when talking to a NTLM proxy in FIPS mode
 Patch63:  0063-curl-7.61.1-native-md5.patch
+
+# asyn-thread: issue CURL_POLL_REMOVE before closing socket
+Patch64:  0064-curl-7.61.1-EBADF.patch
+
+# libssh: Fix matching user-specified MD5 hex key
+Patch65:  0065-md5-hex-key.patch
+
+# crypto: ensure crypto initialization works
+Patch66:  0066-crypto-initialization.patch
+
+# NTLM: force the connection to HTTP/1.1
+Patch67:  0067-curl-7.61.1-ntlm-force-http-1-1.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -420,6 +432,10 @@ git apply %{PATCH52}
 %patch -P 61 -p1
 %patch -P 62 -p1
 %patch -P 63 -p1
+%patch -P 64 -p1
+%patch -P 65 -p1
+%patch -P 66 -p1
+%patch -P 67 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -582,6 +598,22 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Mon Jul 21 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.8
+- NTLM: force the connection to HTTP/1.1 (RHEL-73788)
+
+* Wed Jul 09 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.7
+* crypto: ensure crypto initialization works (RHEL-102601)
+
+* Thu May 29 2025 Carlos Santos <casantos@redhat.com> - 7.61.1-34.el8_10.6
+- libssh: Fix matching user-specified MD5 hex key (RHEL-94574)
+
+* Wed Jan 08 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.5
+- asyn-thread: fix EBADF regression (RHEL-85602)
+
+* Wed Jan 08 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.4
+- make up incomplete patch for host name wildcard checking (RHEL-5680)
+- asyn-thread: issue CURL_POLL_REMOVE before closing socket (RHEL-85602)
+
 * Wed Oct 30 2024 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.3
 - asyn-thread: create a socketpair to wait on (RHEL-34906)
 - fix crash, when talking to a NTLM proxy in FIPS mode (RHEL-32641)

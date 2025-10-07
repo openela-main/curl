@@ -1,0 +1,44 @@
+From a1c1af1b82bf9427b2bd5ad949d24923f995909a Mon Sep 17 00:00:00 2001
+From: Jacek Migacz <jmigacz@redhat.com>
+Date: Wed, 9 Jul 2025 14:33:09 +0200
+Subject: [PATCH] crypto: ensure crypto initialization works
+
+---
+ lib/vtls/openssl.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
+index 161e79e..7c41f54 100644
+--- a/lib/vtls/openssl.c
++++ b/lib/vtls/openssl.c
+@@ -3802,7 +3802,12 @@ static CURLcode Curl_ossl_md5sum(unsigned char *tmp, /* input */
+   (void) unused;
+ 
+   mdctx = EVP_MD_CTX_create();
+-  EVP_DigestInit_ex(mdctx, EVP_md5(), NULL);
++  if(!mdctx)
++      return CURLE_OUT_OF_MEMORY;
++  if(!EVP_DigestInit_ex(mdctx, EVP_md5(), NULL)) {
++      EVP_MD_CTX_destroy(mdctx);
++      return CURLE_FAILED_INIT;
++  }
+   EVP_DigestUpdate(mdctx, tmp, tmplen);
+   EVP_DigestFinal_ex(mdctx, md5sum, &len);
+   EVP_MD_CTX_destroy(mdctx);
+@@ -3820,7 +3825,12 @@ static CURLcode Curl_ossl_sha256sum(const unsigned char *tmp, /* input */
+   (void) unused;
+ 
+   mdctx =  EVP_MD_CTX_create();
+-  EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
++  if(!mdctx)
++      return CURLE_OUT_OF_MEMORY;
++  if(!EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL)) {
++      EVP_MD_CTX_destroy(mdctx);
++      return CURLE_FAILED_INIT;
++  }
+   EVP_DigestUpdate(mdctx, tmp, tmplen);
+   EVP_DigestFinal_ex(mdctx, sha256sum, &len);
+   EVP_MD_CTX_destroy(mdctx);
+-- 
+2.50.0
+
