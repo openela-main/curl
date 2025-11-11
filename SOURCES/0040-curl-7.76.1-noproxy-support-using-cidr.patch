@@ -1,0 +1,1694 @@
+From 1e9a538e05c0107c54ef81d9de7cd0b27cd13309 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Thu, 20 Oct 2022 15:21:12 +0200
+Subject: [PATCH] noproxy: support proxies specified using cidr notation
+
+For both IPv4 and IPv6 addresses. Now also checks IPv6 addresses "correctly"
+and not with string comparisons.
+
+Split out the noproxy checks and functionality into noproxy.c
+
+Added unit test 1614 to verify checking functions.
+
+Reported-by: Mathieu Carbonneaux
+
+Fixes #9773
+Fixes #5745
+Closes #9775
+---
+ docs/KNOWN_BUGS                     |   8 --
+ docs/libcurl/opts/CURLOPT_NOPROXY.3 |   4 -
+ lib/Makefile.inc                    |   2 +
+ lib/noproxy.c                       | 212 ++++++++++++++++++++++++++++
+ lib/noproxy.h                       |  44 ++++++
+ lib/url.c                           |  82 +----------
+ tests/data/Makefile.inc             |   2 +-
+ tests/data/test1614                 |  25 ++++
+ tests/unit/Makefile.inc             |   5 +-
+ tests/unit/unit1614.c               | 133 +++++++++++++++++
+ 10 files changed, 424 insertions(+), 93 deletions(-)
+ create mode 100644 lib/noproxy.c
+ create mode 100644 lib/noproxy.h
+ create mode 100644 tests/data/test1614
+ create mode 100644 tests/unit/unit1614.c
+
+diff --git a/docs/KNOWN_BUGS b/docs/KNOWN_BUGS
+index 5a1dea1b5..6cbcd51de 100644
+--- a/docs/KNOWN_BUGS
++++ b/docs/KNOWN_BUGS
+@@ -119,7 +119,6 @@ problems may have been fixed or changed somewhat since this was written.
+  11.9 DoH doesn't inherit all transfer options
+  11.10 Blocking socket operations in non-blocking API
+  11.11 A shared connection cache is not thread-safe
+- 11.12 'no_proxy' string-matches IPv6 numerical addresses
+  11.13 wakeup socket disconnect causes havoc
+  11.14 Multi perform hangs waiting for threaded resolver
+  11.15 CURLOPT_OPENSOCKETPAIRFUNCTION is missing
+@@ -931,13 +930,6 @@ problems may have been fixed or changed somewhat since this was written.
+ 
+  See https://github.com/curl/curl/issues/4915 and lib1541.c
+ 
+-11.12 'no_proxy' string-matches IPv6 numerical addresses
+-
+- This has the downside that "::1" for example doesn't match "::0:1" even
+- though they are in fact the same address.
+-
+- See https://github.com/curl/curl/issues/5745
+-
+ 11.13 wakeup socket disconnect causes havoc
+ 
+  waking an iPad breaks the wakeup socket pair, triggering a POLLIN event and
+diff --git a/docs/libcurl/opts/CURLOPT_NOPROXY.3 b/docs/libcurl/opts/CURLOPT_NOPROXY.3
+index da336014f..138f57637 100644
+--- a/docs/libcurl/opts/CURLOPT_NOPROXY.3
++++ b/docs/libcurl/opts/CURLOPT_NOPROXY.3
+@@ -53,10 +53,6 @@ brackets:
+ 
+  "example.com,::1,localhost"
+ 
+-IPv6 numerical addresses are compared as strings, so they will only match if
+-the representations are the same: "::1" is the same as "::0:1" but they don't
+-match.
+-
+ The application does not have to keep the string around after setting this
+ option.
+ .SH "Environment variables"
+diff --git a/lib/Makefile.inc b/lib/Makefile.inc
+index 229f42d86..b2d2e9e52 100644
+--- a/lib/Makefile.inc
++++ b/lib/Makefile.inc
+@@ -177,6 +177,7 @@ LIB_CFILES =         \
+   netrc.c            \
+   non-ascii.c        \
+   nonblock.c         \
++  noproxy.c          \
+   openldap.c         \
+   parsedate.c        \
+   pingpong.c         \
+@@ -301,6 +302,7 @@ LIB_HFILES =         \
+   netrc.h            \
+   non-ascii.h        \
+   nonblock.h         \
++  noproxy.h          \
+   parsedate.h        \
+   pingpong.h         \
+   pop3.h             \
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+new file mode 100644
+index 000000000..701a09e04
+--- /dev/null
++++ b/lib/noproxy.c
+@@ -0,0 +1,212 @@
++/***************************************************************************
++ *                                  _   _ ____  _
++ *  Project                     ___| | | |  _ \| |
++ *                             / __| | | | |_) | |
++ *                            | (__| |_| |  _ <| |___
++ *                             \___|\___/|_| \_\_____|
++ *
++ * Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
++ *
++ * This software is licensed as described in the file COPYING, which
++ * you should have received as part of this distribution. The terms
++ * are also available at https://curl.se/docs/copyright.html.
++ *
++ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
++ * copies of the Software, and permit persons to whom the Software is
++ * furnished to do so, under the terms of the COPYING file.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ * SPDX-License-Identifier: curl
++ *
++ ***************************************************************************/
++
++#include "curl_setup.h"
++
++#ifndef CURL_DISABLE_PROXY
++
++#include "inet_pton.h"
++#include "strcase.h"
++#include "noproxy.h"
++
++/*
++ * Curl_cidr4_match() returns TRUE if the given IPv4 address is within the
++ * specified CIDR address range.
++ */
++UNITTEST bool Curl_cidr4_match(const char *ipv4,    /* 1.2.3.4 address */
++                               const char *network, /* 1.2.3.4 address */
++                               unsigned int bits)
++{
++  unsigned int address = 0;
++  unsigned int check = 0;
++
++  if(bits > 32)
++    /* strange input */
++    return FALSE;
++
++  if(1 != Curl_inet_pton(AF_INET, ipv4, &address))
++    return FALSE;
++  if(1 != Curl_inet_pton(AF_INET, network, &check))
++    return FALSE;
++
++  if(bits && (bits != 32)) {
++    unsigned int mask = 0xffffffff << (32 - bits);
++    unsigned int haddr = htonl(address);
++    unsigned int hcheck = htonl(check);
++#if 0
++    fprintf(stderr, "Host %s (%x) network %s (%x) bits %u mask %x => %x\n",
++            ipv4, haddr, network, hcheck, bits, mask,
++            (haddr ^ hcheck) & mask);
++#endif
++    if((haddr ^ hcheck) & mask)
++      return FALSE;
++    return TRUE;
++  }
++  return (address == check);
++}
++
++UNITTEST bool Curl_cidr6_match(const char *ipv6,
++                               const char *network,
++                               unsigned int bits)
++{
++  int bytes;
++  int rest;
++  unsigned char address[16];
++  unsigned char check[16];
++
++  if(!bits)
++    bits = 128;
++
++  bytes = bits/8;
++  rest = bits & 0x07;
++  if(1 != Curl_inet_pton(AF_INET6, ipv6, address))
++    return FALSE;
++  if(1 != Curl_inet_pton(AF_INET6, network, check))
++    return FALSE;
++  if((bytes > 16) || ((bytes == 16) && rest))
++    return FALSE;
++  if(bytes && memcmp(address, check, bytes))
++    return FALSE;
++  if(rest && !((address[bytes] ^ check[bytes]) & (0xff << (8 - rest))))
++    return FALSE;
++
++  return TRUE;
++}
++
++enum nametype {
++  TYPE_HOST,
++  TYPE_IPV4,
++  TYPE_IPV6
++};
++
++/****************************************************************
++* Checks if the host is in the noproxy list. returns TRUE if it matches and
++* therefore the proxy should NOT be used.
++****************************************************************/
++bool Curl_check_noproxy(const char *name, const char *no_proxy)
++{
++  /* no_proxy=domain1.dom,host.domain2.dom
++   *   (a comma-separated list of hosts which should
++   *   not be proxied, or an asterisk to override
++   *   all proxy variables)
++   */
++  if(no_proxy && no_proxy[0]) {
++    const char *p = no_proxy;
++    size_t namelen;
++    enum nametype type = TYPE_HOST;
++    char hostip[128];
++    if(!strcmp("*", no_proxy))
++      return TRUE;
++
++    /* NO_PROXY was specified and it wasn't just an asterisk */
++
++    if(name[0] == '[') {
++      char *endptr;
++      /* IPv6 numerical address */
++      endptr = strchr(name, ']');
++      if(!endptr)
++        return FALSE;
++      name++;
++      namelen = endptr - name;
++      if(namelen >= sizeof(hostip))
++        return FALSE;
++      memcpy(hostip, name, namelen);
++      hostip[namelen] = 0;
++      name = hostip;
++      type = TYPE_IPV6;
++    }
++    else {
++      unsigned int address;
++      if(1 == Curl_inet_pton(AF_INET, name, &address))
++        type = TYPE_IPV4;
++      namelen = strlen(name);
++    }
++
++    while(*p) {
++      const char *token;
++      size_t tokenlen = 0;
++      bool match = FALSE;
++
++      /* pass blanks */
++      while(*p && ISBLANK(*p))
++        p++;
++
++      token = p;
++      /* pass over the pattern */
++      while(*p && !ISBLANK(*p) && (*p != ',')) {
++        p++;
++        tokenlen++;
++      }
++
++      if(tokenlen) {
++        switch(type) {
++        case TYPE_HOST:
++          if(*token == '.') {
++            ++token;
++            --tokenlen;
++            /* tailmatch */
++            match = (tokenlen <= namelen) &&
++              strncasecompare(token, name + (namelen - tokenlen), namelen);
++          }
++          else
++            match = (tokenlen == namelen) &&
++              strncasecompare(token, name, namelen);
++          break;
++        case TYPE_IPV4:
++          /* FALLTHROUGH */
++        case TYPE_IPV6: {
++          const char *check = token;
++          char *slash = strchr(check, '/');
++          unsigned int bits = 0;
++          char checkip[128];
++          /* if the slash is part of this token, use it */
++          if(slash && (slash < &check[tokenlen])) {
++            bits = atoi(slash + 1);
++            /* copy the check name to a temp buffer */
++            if(tokenlen >= sizeof(checkip))
++              break;
++            memcpy(checkip, check, tokenlen);
++            checkip[ slash - check ] = 0;
++            check = checkip;
++          }
++          if(type == TYPE_IPV6)
++            match = Curl_cidr6_match(name, check, bits);
++          else
++            match = Curl_cidr4_match(name, check, bits);
++          break;
++        }
++        }
++        if(match)
++          return TRUE;
++      } /* if(tokenlen) */
++      while(*p == ',')
++        p++;
++    } /* while(*p) */
++  } /* NO_PROXY was specified and it wasn't just an asterisk */
++
++  return FALSE;
++}
++
++#endif /* CURL_DISABLE_PROXY */
++
+diff --git a/lib/noproxy.h b/lib/noproxy.h
+new file mode 100644
+index 000000000..8800a2127
+--- /dev/null
++++ b/lib/noproxy.h
+@@ -0,0 +1,44 @@
++#ifndef HEADER_CURL_NOPROXY_H
++#define HEADER_CURL_NOPROXY_H
++/***************************************************************************
++ *                                  _   _ ____  _
++ *  Project                     ___| | | |  _ \| |
++ *                             / __| | | | |_) | |
++ *                            | (__| |_| |  _ <| |___
++ *                             \___|\___/|_| \_\_____|
++ *
++ * Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
++ *
++ * This software is licensed as described in the file COPYING, which
++ * you should have received as part of this distribution. The terms
++ * are also available at https://curl.se/docs/copyright.html.
++ *
++ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
++ * copies of the Software, and permit persons to whom the Software is
++ * furnished to do so, under the terms of the COPYING file.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ * SPDX-License-Identifier: curl
++ *
++ ***************************************************************************/
++#include "curl_setup.h"
++
++#ifndef CURL_DISABLE_PROXY
++
++#ifdef DEBUGBUILD
++
++UNITTEST bool Curl_cidr4_match(const char *ipv4,    /* 1.2.3.4 address */
++                               const char *network, /* 1.2.3.4 address */
++                               unsigned int bits);
++UNITTEST bool Curl_cidr6_match(const char *ipv6,
++                               const char *network,
++                               unsigned int bits);
++#endif
++
++bool Curl_check_noproxy(const char *name, const char *no_proxy);
++
++#endif
++
++#endif /* HEADER_CURL_NOPROXY_H */
+diff --git a/lib/url.c b/lib/url.c
+index 5ace2fdd8..a3be56bce 100644
+--- a/lib/url.c
++++ b/lib/url.c
+@@ -106,6 +106,7 @@ bool Curl_win32_idn_to_ascii(const char *in, char **out);
+ #include "urlapi-int.h"
+ #include "system_win32.h"
+ #include "hsts.h"
++#include "noproxy.h"
+ 
+ /* And now for the protocols */
+ #include "ftp.h"
+@@ -2261,83 +2262,6 @@ void Curl_free_request_state(struct Curl_easy *data)
+ 
+ 
+ #ifndef CURL_DISABLE_PROXY
+-/****************************************************************
+-* Checks if the host is in the noproxy list. returns true if it matches
+-* and therefore the proxy should NOT be used.
+-****************************************************************/
+-static bool check_noproxy(const char *name, const char *no_proxy)
+-{
+-  /* no_proxy=domain1.dom,host.domain2.dom
+-   *   (a comma-separated list of hosts which should
+-   *   not be proxied, or an asterisk to override
+-   *   all proxy variables)
+-   */
+-  if(no_proxy && no_proxy[0]) {
+-    size_t tok_start;
+-    size_t tok_end;
+-    const char *separator = ", ";
+-    size_t no_proxy_len;
+-    size_t namelen;
+-    char *endptr;
+-    if(strcasecompare("*", no_proxy)) {
+-      return TRUE;
+-    }
+-
+-    /* NO_PROXY was specified and it wasn't just an asterisk */
+-
+-    no_proxy_len = strlen(no_proxy);
+-    if(name[0] == '[') {
+-      /* IPv6 numerical address */
+-      endptr = strchr(name, ']');
+-      if(!endptr)
+-        return FALSE;
+-      name++;
+-      namelen = endptr - name;
+-    }
+-    else
+-      namelen = strlen(name);
+-
+-    for(tok_start = 0; tok_start < no_proxy_len; tok_start = tok_end + 1) {
+-      while(tok_start < no_proxy_len &&
+-            strchr(separator, no_proxy[tok_start]) != NULL) {
+-        /* Look for the beginning of the token. */
+-        ++tok_start;
+-      }
+-
+-      if(tok_start == no_proxy_len)
+-        break; /* It was all trailing separator chars, no more tokens. */
+-
+-      for(tok_end = tok_start; tok_end < no_proxy_len &&
+-            strchr(separator, no_proxy[tok_end]) == NULL; ++tok_end)
+-        /* Look for the end of the token. */
+-        ;
+-
+-      /* To match previous behavior, where it was necessary to specify
+-       * ".local.com" to prevent matching "notlocal.com", we will leave
+-       * the '.' off.
+-       */
+-      if(no_proxy[tok_start] == '.')
+-        ++tok_start;
+-
+-      if((tok_end - tok_start) <= namelen) {
+-        /* Match the last part of the name to the domain we are checking. */
+-        const char *checkn = name + namelen - (tok_end - tok_start);
+-        if(strncasecompare(no_proxy + tok_start, checkn,
+-                           tok_end - tok_start)) {
+-          if((tok_end - tok_start) == namelen || *(checkn - 1) == '.') {
+-            /* We either have an exact match, or the previous character is a .
+-             * so it is within the same domain, so no proxy for this host.
+-             */
+-            return TRUE;
+-          }
+-        }
+-      } /* if((tok_end - tok_start) <= namelen) */
+-    } /* for(tok_start = 0; tok_start < no_proxy_len;
+-         tok_start = tok_end + 1) */
+-  } /* NO_PROXY was specified and it wasn't just an asterisk */
+-
+-  return FALSE;
+-}
+ 
+ #ifndef CURL_DISABLE_HTTP
+ /****************************************************************
+@@ -2706,8 +2630,8 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
+     }
+   }
+ 
+-  if(check_noproxy(conn->host.name, data->set.str[STRING_NOPROXY] ?
+-      data->set.str[STRING_NOPROXY] : no_proxy)) {
++  if(Curl_check_noproxy(conn->host.name, data->set.str[STRING_NOPROXY] ?
++                        data->set.str[STRING_NOPROXY] : no_proxy)) {
+     Curl_safefree(proxy);
+     Curl_safefree(socksproxy);
+   }
+diff --git a/tests/data/Makefile.inc b/tests/data/Makefile.inc
+index 8195ad7ec..b3727a6c6 100644
+--- a/tests/data/Makefile.inc
++++ b/tests/data/Makefile.inc
+@@ -202,7 +202,7 @@ test1566 test1567 test1568 test1569 test1570 \
+ test1590 test1591 test1592 test1593 test1594 test1595 test1596 \
+ \
+ test1600 test1601 test1602 test1603 test1604 test1605 test1606 test1607 \
+-test1608 test1609 test1610 test1611 test1612 test1613 \
++test1608 test1609 test1610 test1611 test1612 test1613 test1614 \
+ \
+ test1620 test1621 \
+ \
+diff --git a/tests/data/test1614 b/tests/data/test1614
+new file mode 100644
+index 000000000..4a9d54eb6
+--- /dev/null
++++ b/tests/data/test1614
+@@ -0,0 +1,25 @@
++<testcase>
++<info>
++<keywords>
++unittest
++</keywords>
++</info>
++
++#
++# Client-side
++<client>
++<server>
++none
++</server>
++<features>
++unittest
++proxy
++</features>
++ <name>
++cidr comparisons
++ </name>
++</client>
++<errorcode>
++0
++</errorcode>
++</testcase>
+diff --git a/tests/unit/Makefile.inc b/tests/unit/Makefile.inc
+index f86cb7c39..831a82033 100644
+--- a/tests/unit/Makefile.inc
++++ b/tests/unit/Makefile.inc
+@@ -34,7 +34,7 @@ UNITPROGS = unit1300 unit1301 unit1302 unit1303 unit1304 unit1305 unit1307 \
+  unit1330 unit1394 unit1395 unit1396 unit1397 unit1398 \
+  unit1399 \
+  unit1600 unit1601 unit1602 unit1603 unit1604 unit1605 unit1606 unit1607 \
+- unit1608 unit1609 unit1610 unit1611 unit1612 \
++ unit1608 unit1609 unit1610 unit1611 unit1612 unit1614 \
+  unit1620 unit1621 \
+  unit1650 unit1651 unit1652 unit1653 unit1654 unit1655 \
+  unit1660
+@@ -132,6 +132,9 @@ unit1611_CPPFLAGS = $(AM_CPPFLAGS)
+ unit1612_SOURCES = unit1612.c $(UNITFILES)
+ unit1612_CPPFLAGS = $(AM_CPPFLAGS)
+ 
++unit1614_SOURCES = unit1614.c $(UNITFILES)
++unit1614_CPPFLAGS = $(AM_CPPFLAGS)
++
+ unit1620_SOURCES = unit1620.c $(UNITFILES)
+ unit1620_CPPFLAGS = $(AM_CPPFLAGS)
+ 
+diff --git a/tests/unit/unit1614.c b/tests/unit/unit1614.c
+new file mode 100644
+index 000000000..d64f651c8
+--- /dev/null
++++ b/tests/unit/unit1614.c
+@@ -0,0 +1,133 @@
++/***************************************************************************
++ *                                  _   _ ____  _
++ *  Project                     ___| | | |  _ \| |
++ *                             / __| | | | |_) | |
++ *                            | (__| |_| |  _ <| |___
++ *                             \___|\___/|_| \_\_____|
++ *
++ * Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
++ *
++ * This software is licensed as described in the file COPYING, which
++ * you should have received as part of this distribution. The terms
++ * are also available at https://curl.se/docs/copyright.html.
++ *
++ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
++ * copies of the Software, and permit persons to whom the Software is
++ * furnished to do so, under the terms of the COPYING file.
++ *
++ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
++ * KIND, either express or implied.
++ *
++ * SPDX-License-Identifier: curl
++ *
++ ***************************************************************************/
++#include "curlcheck.h"
++
++#include "noproxy.h"
++
++static CURLcode unit_setup(void)
++{
++  return CURLE_OK;
++}
++
++static void unit_stop(void)
++{
++
++}
++
++struct check {
++  const char *a;
++  const char *n;
++  unsigned int bits;
++  bool match;
++};
++
++struct noproxy {
++  const char *a;
++  const char *n;
++  bool match;
++};
++
++UNITTEST_START
++#ifdef DEBUGBUILD
++{
++  int i;
++  int err = 0;
++  struct check list4[]= {
++    { "192.160.0.1", "192.160.0.1", 33, FALSE},
++    { "192.160.0.1", "192.160.0.1", 32, TRUE},
++    { "192.160.0.1", "192.160.0.1", 0, TRUE},
++    { "192.160.0.1", "192.160.0.1", 24, TRUE},
++    { "192.160.0.1", "192.160.0.1", 26, TRUE},
++    { "192.160.0.1", "192.160.0.1", 20, TRUE},
++    { "192.160.0.1", "192.160.0.1", 18, TRUE},
++    { "192.160.0.1", "192.160.0.1", 12, TRUE},
++    { "192.160.0.1", "192.160.0.1", 8, TRUE},
++    { "192.160.0.1", "10.0.0.1", 8, FALSE},
++    { "192.160.0.1", "10.0.0.1", 32, FALSE},
++    { "192.160.0.1", "10.0.0.1", 0, FALSE},
++    { NULL, NULL, 0, FALSE} /* end marker */
++  };
++  struct check list6[]= {
++    { "::1", "::1", 0, TRUE},
++    { "::1", "::1", 128, TRUE},
++    { "::1", "0:0::1", 128, TRUE},
++    { "::1", "0:0::1", 129, FALSE},
++    { "fe80::ab47:4396:55c9:8474", "fe80::ab47:4396:55c9:8474", 64, TRUE},
++    { NULL, NULL, 0, FALSE} /* end marker */
++  };
++  struct noproxy list[]= {
++    { "foobar", "barfoo", FALSE},
++    { "foobar", "foobar", TRUE},
++    { "192.168.0.1", "foobar", FALSE},
++    { "192.168.0.1", "192.168.0.0/16", TRUE},
++    { "192.168.0.1", "192.168.0.0/24", TRUE},
++    { "192.168.0.1", "192.168.0.0/32", FALSE},
++    { "192.168.0.1", "192.168.0.0", FALSE},
++    { "192.168.1.1", "192.168.0.0/24", FALSE},
++    { "192.168.1.1", "foo, bar, 192.168.0.0/24", FALSE},
++    { "192.168.1.1", "foo, bar, 192.168.0.0/16", TRUE},
++    { "[::1]", "foo, bar, 192.168.0.0/16", FALSE},
++    { "[::1]", "foo, bar, ::1/64", TRUE},
++    { "bar", "foo, bar, ::1/64", TRUE},
++    { "BAr", "foo, bar, ::1/64", TRUE},
++    { "BAr", "foo,,,,,              bar, ::1/64", TRUE},
++    { "www.example.com", "foo, .example.com", TRUE},
++    { "www.example.com", "www2.example.com, .example.net", FALSE},
++    { "example.com", ".example.com, .example.net", TRUE},
++    { "nonexample.com", ".example.com, .example.net", FALSE},
++    { NULL, NULL, FALSE}
++  };
++  for(i = 0; list4[i].a; i++) {
++    bool match = Curl_cidr4_match(list4[i].a, list4[i].n, list4[i].bits);
++    if(match != list4[i].match) {
++      fprintf(stderr, "%s in %s/%u should %smatch\n",
++              list4[i].a, list4[i].n, list4[i].bits,
++              list4[i].match ? "": "not ");
++      err++;
++    }
++  }
++  for(i = 0; list6[i].a; i++) {
++    bool match = Curl_cidr6_match(list6[i].a, list6[i].n, list6[i].bits);
++    if(match != list6[i].match) {
++      fprintf(stderr, "%s in %s/%u should %smatch\n",
++              list6[i].a, list6[i].n, list6[i].bits,
++              list6[i].match ? "": "not ");
++      err++;
++    }
++  }
++  for(i = 0; list[i].a; i++) {
++    bool match = Curl_check_noproxy(list[i].a, list[i].n);
++    if(match != list[i].match) {
++      fprintf(stderr, "%s in %s should %smatch\n",
++              list[i].a, list[i].n,
++              list[i].match ? "": "not ");
++      err++;
++    }
++  }
++  return err;
++}
++#else
++return 0;
++#endif
++UNITTEST_STOP
+-- 
+2.49.0
+
+From 36474f1050c7f4117e3c8de6cc9217cfebfc717d Mon Sep 17 00:00:00 2001
+From: Viktor Szakats <commit@vsz.me>
+Date: Fri, 21 Oct 2022 19:06:25 +0000
+Subject: [PATCH] noproxy: fix builds without AF_INET6
+
+Regression from 1e9a538e05c0107c54ef81d9de7cd0b27cd13309
+
+Reviewed-by: Daniel Stenberg
+
+Closes #9778
+---
+ lib/noproxy.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 701a09e04..0b9355a66 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -70,6 +70,7 @@ UNITTEST bool Curl_cidr6_match(const char *ipv6,
+                                const char *network,
+                                unsigned int bits)
+ {
++#ifdef ENABLE_IPV6
+   int bytes;
+   int rest;
+   unsigned char address[16];
+@@ -92,6 +93,9 @@ UNITTEST bool Curl_cidr6_match(const char *ipv6,
+     return FALSE;
+ 
+   return TRUE;
++#else
++  return FALSE;
++#endif
+ }
+ 
+ enum nametype {
+-- 
+2.49.0
+
+From 9b63dda16ec02c758f43143abcb8c5eeaecef8ae Mon Sep 17 00:00:00 2001
+From: Viktor Szakats <commit@vsz.me>
+Date: Sat, 22 Oct 2022 23:20:26 +0000
+Subject: [PATCH] noproxy: silence unused variable warnings with no ipv6
+
+Follow-up to 36474f1050c7f4117e3c8de6cc9217cfebfc717d
+
+Reviewed-by: Daniel Stenberg
+Closes #9782
+---
+ lib/noproxy.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 0b9355a66..4b70a4be4 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -94,6 +94,9 @@ UNITTEST bool Curl_cidr6_match(const char *ipv6,
+ 
+   return TRUE;
+ #else
++  (void)ipv6;
++  (void)network;
++  (void)bits;
+   return FALSE;
+ #endif
+ }
+@@ -213,4 +216,3 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+ }
+ 
+ #endif /* CURL_DISABLE_PROXY */
+-
+-- 
+2.49.0
+
+From 86c0029047022ea150df1f1a35f184dd7315288a Mon Sep 17 00:00:00 2001
+From: Viktor Szakats <commit@vsz.me>
+Date: Tue, 25 Oct 2022 15:19:28 +0000
+Subject: [PATCH] noproxy: include netinet/in.h for htonl()
+
+Solve the Amiga build warning by including `netinet/in.h`.
+
+`krb5.c` and `socketpair.c` are using `htonl()` too. This header is
+already included in those sources.
+
+Regression from 1e9a538e05c0107c54ef81d9de7cd0b27cd13309
+
+Reviewed-by: Daniel Stenberg
+Closes #9787
+---
+ lib/noproxy.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 4b70a4be4..81f1e0993 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -30,6 +30,10 @@
+ #include "strcase.h"
+ #include "noproxy.h"
+ 
++#ifdef HAVE_NETINET_IN_H
++#include <netinet/in.h>
++#endif
++
+ /*
+  * Curl_cidr4_match() returns TRUE if the given IPv4 address is within the
+  * specified CIDR address range.
+-- 
+2.49.0
+
+From efc286b7a62af0568fdcbf3c68791c9955182128 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Thu, 27 Oct 2022 13:54:27 +0200
+Subject: [PATCH] noproxy: also match with adjacent comma
+
+If the host name is an IP address and the noproxy string contained that
+IP address with a following comma, it would erroneously not match.
+
+Extended test 1614 to verify this combo as well.
+
+Reported-by: Henning Schild
+
+Fixes #9813
+Closes #9814
+---
+ lib/noproxy.c         | 20 ++++++++++++--------
+ tests/data/test1614   |  2 +-
+ tests/unit/unit1614.c | 14 ++++++++++++++
+ 3 files changed, 27 insertions(+), 9 deletions(-)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 3409dab6f..58bc69a2d 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -192,18 +192,22 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+           /* FALLTHROUGH */
+         case TYPE_IPV6: {
+           const char *check = token;
+-          char *slash = strchr(check, '/');
++          char *slash;
+           unsigned int bits = 0;
+           char checkip[128];
++          if(tokenlen >= sizeof(checkip))
++            /* this cannot match */
++            break;
++          /* copy the check name to a temp buffer */
++          memcpy(checkip, check, tokenlen);
++          checkip[tokenlen] = 0;
++          check = checkip;
++
++          slash = strchr(check, '/');
+           /* if the slash is part of this token, use it */
+-          if(slash && (slash < &check[tokenlen])) {
++          if(slash) {
+             bits = atoi(slash + 1);
+-            /* copy the check name to a temp buffer */
+-            if(tokenlen >= sizeof(checkip))
+-              break;
+-            memcpy(checkip, check, tokenlen);
+-            checkip[ slash - check ] = 0;
+-            check = checkip;
++            *slash = 0; /* null terminate there */
+           }
+           if(type == TYPE_IPV6)
+             match = Curl_cidr6_match(name, check, bits);
+diff --git a/tests/data/test1614 b/tests/data/test1614
+index 4a9d54eb6..73bdbb4e0 100644
+--- a/tests/data/test1614
++++ b/tests/data/test1614
+@@ -16,7 +16,7 @@ unittest
+ proxy
+ </features>
+  <name>
+-cidr comparisons
++noproxy and cidr comparisons
+  </name>
+ </client>
+ <errorcode>
+diff --git a/tests/unit/unit1614.c b/tests/unit/unit1614.c
+index 60285450c..c2f563a0d 100644
+--- a/tests/unit/unit1614.c
++++ b/tests/unit/unit1614.c
+@@ -77,6 +77,20 @@ UNITTEST_START
+     { NULL, NULL, 0, FALSE} /* end marker */
+   };
+   struct noproxy list[]= {
++    { "127.0.0.1", "127.0.0.1,localhost", TRUE},
++    { "127.0.0.1", "127.0.0.1,localhost,", TRUE},
++    { "127.0.0.1", "127.0.0.1/8,localhost,", TRUE},
++    { "127.0.0.1", "127.0.0.1/28,localhost,", TRUE},
++    { "127.0.0.1", "127.0.0.1/31,localhost,", TRUE},
++    { "127.0.0.1", "localhost,127.0.0.1", TRUE},
++    { "127.0.0.1", "localhost,127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1."
++      "127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127."
++      "0.0.1.127.0.0.1.127.0.0." /* 128 bytes "address" */, FALSE},
++    { "127.0.0.1", "localhost,127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1."
++      "127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127."
++      "0.0.1.127.0.0.1.127.0.0" /* 127 bytes "address" */, FALSE},
++    { "localhost", "localhost,127.0.0.1", TRUE},
++    { "localhost", "127.0.0.1,localhost", TRUE},
+     { "foobar", "barfoo", FALSE},
+     { "foobar", "foobar", TRUE},
+     { "192.168.0.1", "foobar", FALSE},
+-- 
+2.49.0
+
+From d4fed2a13a81d23e73f1fb491c335a1b1d91e3fb Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Fri, 28 Oct 2022 00:07:14 +0200
+Subject: [PATCH] docs: explain the noproxy CIDR notation support
+
+Follow-up to 1e9a538e05c0107c
+
+Closes #9818
+---
+ docs/cmdline-opts/noproxy.d         | 5 +++++
+ docs/cmdline-opts/page-footer       | 7 ++++---
+ docs/libcurl/opts/CURLOPT_NOPROXY.3 | 5 +++++
+ 3 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/docs/cmdline-opts/noproxy.d b/docs/cmdline-opts/noproxy.d
+index c28e897eb..998f57071 100644
+--- a/docs/cmdline-opts/noproxy.d
++++ b/docs/cmdline-opts/noproxy.d
+@@ -19,3 +19,8 @@ not www.notlocal.com.
+ Since 7.53.0, This option overrides the environment variables that disable the
+ proxy. If there's an environment variable disabling a proxy, you can set
+ noproxy list to \&"" to override it.
++
++Since 7.86.0, IP addresses specified to this option can be provided using CIDR
++notation: an appended slash and number specifies the number of "network bits"
++out of the address to use in the comparison. For example "192.168.0.0/16"
++would match all addresses starting with "192.168".
+diff --git a/docs/cmdline-opts/page-footer b/docs/cmdline-opts/page-footer
+index c8a65be04..99459ba3d 100644
+--- a/docs/cmdline-opts/page-footer
++++ b/docs/cmdline-opts/page-footer
+@@ -37,9 +37,10 @@ accesses the target URL through the proxy.
+ The list of host names can also be include numerical IP addresses, and IPv6
+ versions should then be given without enclosing brackets.
+ 
+-IPv6 numerical addresses are compared as strings, so they will only match if
+-the representations are the same: "::1" is the same as "::0:1" but they don't
+-match.
++Since 7.86.0, IP addresses can be specified using CIDR notation: an appended
++slash and number specifies the number of "network bits" out of the address to
++use in the comparison. For example "192.168.0.0/16" would match all addresses
++starting with "192.168".
+ .IP "CURL_SSL_BACKEND <TLS backend>"
+ If curl was built with support for "MultiSSL", meaning that it has built-in
+ support for more than one TLS backend, this environment variable can be set to
+diff --git a/docs/libcurl/opts/CURLOPT_NOPROXY.3 b/docs/libcurl/opts/CURLOPT_NOPROXY.3
+index 138f57637..5e4c32130 100644
+--- a/docs/libcurl/opts/CURLOPT_NOPROXY.3
++++ b/docs/libcurl/opts/CURLOPT_NOPROXY.3
+@@ -53,6 +53,11 @@ brackets:
+ 
+  "example.com,::1,localhost"
+ 
++Since 7.86.0, IP addresses specified to this option can be provided using CIDR
++notation: an appended slash and number specifies the number of "network bits"
++out of the address to use in the comparison. For example "192.168.0.0/16"
++would match all addresses starting with "192.168".
++
+ The application does not have to keep the string around after setting this
+ option.
+ .SH "Environment variables"
+-- 
+2.49.0
+
+From b830f9ba9e94acf672cd191993ff679fa888838b Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Fri, 28 Oct 2022 10:51:49 +0200
+Subject: [PATCH] noproxy: fix tail-matching
+
+Also ignore trailing dots in both host name and comparison pattern.
+
+Regression in 7.86.0 (from 1e9a538e05c0)
+
+Extended test 1614 to verify better.
+
+Reported-by: Henning Schild
+Fixes #9821
+Closes #9822
+---
+ lib/noproxy.c         | 30 +++++++++++++++++++++++-------
+ tests/unit/unit1614.c |  9 +++++++++
+ 2 files changed, 32 insertions(+), 7 deletions(-)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 58bc69a2d..2832ae166 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -153,9 +153,14 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+     }
+     else {
+       unsigned int address;
++      namelen = strlen(name);
+       if(1 == Curl_inet_pton(AF_INET, name, &address))
+         type = TYPE_IPV4;
+-      namelen = strlen(name);
++      else {
++        /* ignore trailing dots in the host name */
++        if(name[namelen - 1] == '.')
++          namelen--;
++      }
+     }
+ 
+     while(*p) {
+@@ -177,12 +182,23 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+       if(tokenlen) {
+         switch(type) {
+         case TYPE_HOST:
+-          if(*token == '.') {
+-            ++token;
+-            --tokenlen;
+-            /* tailmatch */
+-            match = (tokenlen <= namelen) &&
+-              strncasecompare(token, name + (namelen - tokenlen), namelen);
++          /* ignore trailing dots in the token to check */
++          if(token[tokenlen - 1] == '.')
++            tokenlen--;
++
++          if(tokenlen && (*token == '.')) {
++            /* A: example.com matches '.example.com'
++               B: www.example.com matches '.example.com'
++               C: nonexample.com DOES NOT match '.example.com'
++            */
++            if((tokenlen - 1) == namelen)
++              /* case A, exact match without leading dot */
++              match = strncasecompare(token + 1, name, namelen);
++            else if(tokenlen < namelen)
++              /* case B, tailmatch with leading dot */
++              match = strncasecompare(token, name + (namelen - tokenlen),
++                                      tokenlen);
++            /* case C passes through, not a match */
+           }
+           else
+             match = (tokenlen == namelen) &&
+diff --git a/tests/unit/unit1614.c b/tests/unit/unit1614.c
+index c2f563a0d..8f62b70d4 100644
+--- a/tests/unit/unit1614.c
++++ b/tests/unit/unit1614.c
+@@ -77,6 +77,15 @@ UNITTEST_START
+     { NULL, NULL, 0, FALSE} /* end marker */
+   };
+   struct noproxy list[]= {
++    { "www.example.com", "localhost,.example.com,.example.de", TRUE},
++    { "www.example.com.", "localhost,.example.com,.example.de", TRUE},
++    { "example.com", "localhost,.example.com,.example.de", TRUE},
++    { "example.com.", "localhost,.example.com,.example.de", TRUE},
++    { "www.example.com", "localhost,.example.com.,.example.de", TRUE},
++    { "www.example.com", "localhost,www.example.com.,.example.de", TRUE},
++    { "example.com", "localhost,example.com,.example.de", TRUE},
++    { "example.com.", "localhost,example.com,.example.de", TRUE},
++    { "www.example.com", "localhost,example.com,.example.de", FALSE},
+     { "127.0.0.1", "127.0.0.1,localhost", TRUE},
+     { "127.0.0.1", "127.0.0.1,localhost,", TRUE},
+     { "127.0.0.1", "127.0.0.1/8,localhost,", TRUE},
+-- 
+2.49.0
+
+From b1953c1933b369b1217ef0f16053e26da63488c3 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Sun, 6 Nov 2022 23:19:51 +0100
+Subject: [PATCH] noproxy: tailmatch like in 7.85.0 and earlier
+
+A regfression in 7.86.0 (via 1e9a538e05c010) made the tailmatch work
+differently than before. This restores the logic to how it used to work:
+
+All names listed in NO_PROXY are tailmatched against the used domain
+name, if the lengths are identical it needs a full match.
+
+Update the docs, update test 1614.
+
+Reported-by: Stuart Henderson
+Fixes #9842
+Closes #9858
+---
+ docs/libcurl/opts/CURLOPT_NOPROXY.3 |  4 ----
+ lib/noproxy.c                       | 32 +++++++++++++++--------------
+ tests/unit/unit1614.c               |  3 ++-
+ 3 files changed, 19 insertions(+), 20 deletions(-)
+
+diff --git a/docs/libcurl/opts/CURLOPT_NOPROXY.3 b/docs/libcurl/opts/CURLOPT_NOPROXY.3
+index 5e4c32130..dc3cf7c10 100644
+--- a/docs/libcurl/opts/CURLOPT_NOPROXY.3
++++ b/docs/libcurl/opts/CURLOPT_NOPROXY.3
+@@ -40,10 +40,6 @@ list is matched as either a domain which contains the hostname, or the
+ example.com:80, and www.example.com, but not www.notanexample.com or
+ example.com.othertld.
+ 
+-If the name in the noproxy list has a leading period, it is a domain match
+-against the provided host name. This way ".example.com" will switch off proxy
+-use for both "www.example.com" as well as for "foo.example.com".
+-
+ Setting the noproxy string to "" (an empty string) will explicitly enable the
+ proxy for all host names, even if there is an environment variable set for it.
+ 
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 2832ae166..fb856e4fa 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -187,22 +187,24 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+             tokenlen--;
+ 
+           if(tokenlen && (*token == '.')) {
+-            /* A: example.com matches '.example.com'
+-               B: www.example.com matches '.example.com'
+-               C: nonexample.com DOES NOT match '.example.com'
+-            */
+-            if((tokenlen - 1) == namelen)
+-              /* case A, exact match without leading dot */
+-              match = strncasecompare(token + 1, name, namelen);
+-            else if(tokenlen < namelen)
+-              /* case B, tailmatch with leading dot */
+-              match = strncasecompare(token, name + (namelen - tokenlen),
+-                                      tokenlen);
+-            /* case C passes through, not a match */
++            /* ignore leading token dot as well */
++            token++;
++            tokenlen--;
+           }
+-          else
+-            match = (tokenlen == namelen) &&
+-              strncasecompare(token, name, namelen);
++          /* A: example.com matches 'example.com'
++             B: www.example.com matches 'example.com'
++             C: nonexample.com DOES NOT match 'example.com'
++          */
++          if(tokenlen == namelen)
++            /* case A, exact match */
++            match = strncasecompare(token, name, namelen);
++          else if(tokenlen < namelen) {
++            /* case B, tailmatch domain */
++            match = (name[namelen - tokenlen - 1] == '.') &&
++              strncasecompare(token, name + (namelen - tokenlen),
++                              tokenlen);
++          }
++          /* case C passes through, not a match */
+           break;
+         case TYPE_IPV4:
+           /* FALLTHROUGH */
+diff --git a/tests/unit/unit1614.c b/tests/unit/unit1614.c
+index 8f62b70d4..523d102bf 100644
+--- a/tests/unit/unit1614.c
++++ b/tests/unit/unit1614.c
+@@ -85,7 +85,8 @@ UNITTEST_START
+     { "www.example.com", "localhost,www.example.com.,.example.de", TRUE},
+     { "example.com", "localhost,example.com,.example.de", TRUE},
+     { "example.com.", "localhost,example.com,.example.de", TRUE},
+-    { "www.example.com", "localhost,example.com,.example.de", FALSE},
++    { "nexample.com", "localhost,example.com,.example.de", FALSE},
++    { "www.example.com", "localhost,example.com,.example.de", TRUE},
+     { "127.0.0.1", "127.0.0.1,localhost", TRUE},
+     { "127.0.0.1", "127.0.0.1,localhost,", TRUE},
+     { "127.0.0.1", "127.0.0.1/8,localhost,", TRUE},
+-- 
+2.49.0
+
+From 60453483b5c26447df95a8a80712e809094cb2a2 Mon Sep 17 00:00:00 2001
+From: Daniel Gustafsson <daniel@yesql.se>
+Date: Thu, 8 Dec 2022 23:37:32 +0100
+Subject: [PATCH] noproxy: guard against empty hostnames in noproxy check
+
+When checking for a noproxy setting we need to ensure that we get
+a hostname passed in. If there is no hostname then there cannot be
+a matching noproxy rule for it by definition.
+
+Closes: #10057
+Reported-by: Geeknik Labs
+Reviewed-by: Daniel Stenberg <daniel@haxx.se>
+---
+ lib/noproxy.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index fb856e4fa..9b13fe895 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -121,6 +121,13 @@ enum nametype {
+ ****************************************************************/
+ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+ {
++  /*
++   * If we don't have a hostname at all, like for example with a FILE
++   * transfer, we have nothing to interrogate the noproxy list with.
++   */
++  if(!name || name[0] == '\0')
++    return FALSE;
++
+   /* no_proxy=domain1.dom,host.domain2.dom
+    *   (a comma-separated list of hosts which should
+    *   not be proxied, or an asterisk to override
+-- 
+2.49.0
+
+From 7ad8a7ba9ebdedceafe8859d3bd4d22ee447648d Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Tue, 3 Jan 2023 14:58:37 +0100
+Subject: [PATCH] noproxy: support for space-separated names is deprecated
+
+To be removed in July 2024.
+
+Assisted-by: Michael Osipov
+Fixes #10209
+Closes #10215
+---
+ lib/noproxy.c         | 13 ++++++-
+ lib/noproxy.h         |  3 +-
+ lib/url.c             |  6 ++-
+ tests/unit/unit1614.c | 91 ++++++++++++++++++++++++-------------------
+ 5 files changed, 88 insertions(+), 44 deletions(-)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 6c0c486f8..f1c1ed2c6 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -119,8 +119,10 @@ enum nametype {
+ * Checks if the host is in the noproxy list. returns TRUE if it matches and
+ * therefore the proxy should NOT be used.
+ ****************************************************************/
+-bool Curl_check_noproxy(const char *name, const char *no_proxy)
++bool Curl_check_noproxy(const char *name, const char *no_proxy,
++                        bool *spacesep)
+ {
++  *spacesep = FALSE;
+   /*
+    * If we don't have a hostname at all, like for example with a FILE
+    * transfer, we have nothing to interrogate the noproxy list with.
+@@ -244,6 +246,15 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+         if(match)
+           return TRUE;
+       } /* if(tokenlen) */
++      /* pass blanks after pattern */
++      while(ISBLANK(*p))
++        p++;
++      /* if not a comma! */
++      if(*p && (*p != ',')) {
++        *spacesep = TRUE;
++        continue;
++      }
++      /* pass any number of commas */
+       while(*p == ',')
+         p++;
+     } /* while(*p) */
+diff --git a/lib/noproxy.h b/lib/noproxy.h
+index b6a1a556a..a3a680772 100644
+--- a/lib/noproxy.h
++++ b/lib/noproxy.h
+@@ -37,7 +37,8 @@ UNITTEST bool Curl_cidr6_match(const char *ipv6,
+                                unsigned int bits);
+ #endif
+ 
+-bool Curl_check_noproxy(const char *name, const char *no_proxy);
++bool Curl_check_noproxy(const char *name, const char *no_proxy,
++                        bool *spacesep);
+ 
+ #endif
+ 
+diff --git a/lib/url.c b/lib/url.c
+index e531a821c..f90427f9b 100644
+--- a/lib/url.c
++++ b/lib/url.c
+@@ -2401,6 +2401,7 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
+   char *socksproxy = NULL;
+   char *no_proxy = NULL;
+   CURLcode result = CURLE_OK;
++  bool spacesep = FALSE;
+ 
+   /*************************************************************
+    * Extract the user and password from the authentication string
+@@ -2447,7 +2448,8 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
+   }
+ 
+   if(Curl_check_noproxy(conn->host.name, data->set.str[STRING_NOPROXY] ?
+-                        data->set.str[STRING_NOPROXY] : no_proxy)) {
++                        data->set.str[STRING_NOPROXY] : no_proxy,
++                        &spacesep)) {
+     Curl_safefree(proxy);
+     Curl_safefree(socksproxy);
+   }
+@@ -2456,6 +2458,8 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
+     /* if the host is not in the noproxy list, detect proxy. */
+     proxy = detect_proxy(data, conn);
+ #endif /* CURL_DISABLE_HTTP */
++  if(spacesep)
++    infof(data, "space-separated NOPROXY patterns are deprecated");
+ 
+   Curl_safefree(no_proxy);
+ 
+diff --git a/tests/unit/unit1614.c b/tests/unit/unit1614.c
+index cc685b9ce..0818ea7ed 100644
+--- a/tests/unit/unit1614.c
++++ b/tests/unit/unit1614.c
+@@ -46,6 +46,7 @@ struct noproxy {
+   const char *a;
+   const char *n;
+   bool match;
++  bool space; /* space separated */
+ };
+ 
+ UNITTEST_START
+@@ -77,50 +78,52 @@ UNITTEST_START
+     { NULL, NULL, 0, FALSE} /* end marker */
+   };
+   struct noproxy list[]= {
+-    { "www.example.com", "localhost,.example.com,.example.de", TRUE},
+-    { "www.example.com.", "localhost,.example.com,.example.de", TRUE},
+-    { "example.com", "localhost,.example.com,.example.de", TRUE},
+-    { "example.com.", "localhost,.example.com,.example.de", TRUE},
+-    { "www.example.com", "localhost,.example.com.,.example.de", TRUE},
+-    { "www.example.com", "localhost,www.example.com.,.example.de", TRUE},
+-    { "example.com", "localhost,example.com,.example.de", TRUE},
+-    { "example.com.", "localhost,example.com,.example.de", TRUE},
+-    { "nexample.com", "localhost,example.com,.example.de", FALSE},
+-    { "www.example.com", "localhost,example.com,.example.de", TRUE},
+-    { "127.0.0.1", "127.0.0.1,localhost", TRUE},
+-    { "127.0.0.1", "127.0.0.1,localhost,", TRUE},
+-    { "127.0.0.1", "127.0.0.1/8,localhost,", TRUE},
+-    { "127.0.0.1", "127.0.0.1/28,localhost,", TRUE},
+-    { "127.0.0.1", "127.0.0.1/31,localhost,", TRUE},
+-    { "127.0.0.1", "localhost,127.0.0.1", TRUE},
++    { "www.example.com", "localhost .example.com .example.de", TRUE, TRUE},
++    { "www.example.com", "localhost,.example.com,.example.de", TRUE, FALSE},
++    { "www.example.com.", "localhost,.example.com,.example.de", TRUE, FALSE},
++    { "example.com", "localhost,.example.com,.example.de", TRUE, FALSE},
++    { "example.com.", "localhost,.example.com,.example.de", TRUE, FALSE},
++    { "www.example.com", "localhost,.example.com.,.example.de", TRUE, FALSE},
++    { "www.example.com", "localhost,www.example.com.,.example.de",
++      TRUE, FALSE},
++    { "example.com", "localhost,example.com,.example.de", TRUE, FALSE},
++    { "example.com.", "localhost,example.com,.example.de", TRUE, FALSE},
++    { "nexample.com", "localhost,example.com,.example.de", FALSE, FALSE},
++    { "www.example.com", "localhost,example.com,.example.de", TRUE, FALSE},
++    { "127.0.0.1", "127.0.0.1,localhost", TRUE, FALSE},
++    { "127.0.0.1", "127.0.0.1,localhost,", TRUE, FALSE},
++    { "127.0.0.1", "127.0.0.1/8,localhost,", TRUE, FALSE},
++    { "127.0.0.1", "127.0.0.1/28,localhost,", TRUE, FALSE},
++    { "127.0.0.1", "127.0.0.1/31,localhost,", TRUE, FALSE},
++    { "127.0.0.1", "localhost,127.0.0.1", TRUE, FALSE},
+     { "127.0.0.1", "localhost,127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1."
+       "127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127."
+-      "0.0.1.127.0.0.1.127.0.0." /* 128 bytes "address" */, FALSE},
++      "0.0.1.127.0.0.1.127.0.0." /* 128 bytes "address" */, FALSE, FALSE},
+     { "127.0.0.1", "localhost,127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1."
+       "127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127."
+-      "0.0.1.127.0.0.1.127.0.0" /* 127 bytes "address" */, FALSE},
+-    { "localhost", "localhost,127.0.0.1", TRUE},
+-    { "localhost", "127.0.0.1,localhost", TRUE},
+-    { "foobar", "barfoo", FALSE},
+-    { "foobar", "foobar", TRUE},
+-    { "192.168.0.1", "foobar", FALSE},
+-    { "192.168.0.1", "192.168.0.0/16", TRUE},
+-    { "192.168.0.1", "192.168.0.0/24", TRUE},
+-    { "192.168.0.1", "192.168.0.0/32", FALSE},
+-    { "192.168.0.1", "192.168.0.0", FALSE},
+-    { "192.168.1.1", "192.168.0.0/24", FALSE},
+-    { "192.168.1.1", "foo, bar, 192.168.0.0/24", FALSE},
+-    { "192.168.1.1", "foo, bar, 192.168.0.0/16", TRUE},
+-    { "[::1]", "foo, bar, 192.168.0.0/16", FALSE},
+-    { "[::1]", "foo, bar, ::1/64", TRUE},
+-    { "bar", "foo, bar, ::1/64", TRUE},
+-    { "BAr", "foo, bar, ::1/64", TRUE},
+-    { "BAr", "foo,,,,,              bar, ::1/64", TRUE},
+-    { "www.example.com", "foo, .example.com", TRUE},
+-    { "www.example.com", "www2.example.com, .example.net", FALSE},
+-    { "example.com", ".example.com, .example.net", TRUE},
+-    { "nonexample.com", ".example.com, .example.net", FALSE},
+-    { NULL, NULL, FALSE}
++      "0.0.1.127.0.0.1.127.0.0" /* 127 bytes "address" */, FALSE, FALSE},
++    { "localhost", "localhost,127.0.0.1", TRUE, FALSE},
++    { "localhost", "127.0.0.1,localhost", TRUE, FALSE},
++    { "foobar", "barfoo", FALSE, FALSE},
++    { "foobar", "foobar", TRUE, FALSE},
++    { "192.168.0.1", "foobar", FALSE, FALSE},
++    { "192.168.0.1", "192.168.0.0/16", TRUE, FALSE},
++    { "192.168.0.1", "192.168.0.0/24", TRUE, FALSE},
++    { "192.168.0.1", "192.168.0.0/32", FALSE, FALSE},
++    { "192.168.0.1", "192.168.0.0", FALSE, FALSE},
++    { "192.168.1.1", "192.168.0.0/24", FALSE, FALSE},
++    { "192.168.1.1", "foo, bar, 192.168.0.0/24", FALSE, FALSE},
++    { "192.168.1.1", "foo, bar, 192.168.0.0/16", TRUE, FALSE},
++    { "[::1]", "foo, bar, 192.168.0.0/16", FALSE, FALSE},
++    { "[::1]", "foo, bar, ::1/64", TRUE, FALSE},
++    { "bar", "foo, bar, ::1/64", TRUE, FALSE},
++    { "BAr", "foo, bar, ::1/64", TRUE, FALSE},
++    { "BAr", "foo,,,,,              bar, ::1/64", TRUE, FALSE},
++    { "www.example.com", "foo, .example.com", TRUE, FALSE},
++    { "www.example.com", "www2.example.com, .example.net", FALSE, FALSE},
++    { "example.com", ".example.com, .example.net", TRUE, FALSE},
++    { "nonexample.com", ".example.com, .example.net", FALSE, FALSE},
++    { NULL, NULL, FALSE, FALSE}
+   };
+   for(i = 0; list4[i].a; i++) {
+     bool match = Curl_cidr4_match(list4[i].a, list4[i].n, list4[i].bits);
+-- 
+2.49.0
+
+From ca05e1afba7088c2f7e96ce47d2d3a249ce7a903 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Tue, 11 Apr 2023 16:24:29 +0200
+Subject: [PATCH] noproxy: pointer to local array 'hostip' is stored outside
+ scope
+
+Ref: #10929
+Closes #10933
+---
+ lib/noproxy.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index f1c1ed2c6..2b9908d89 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -122,6 +122,7 @@ enum nametype {
+ bool Curl_check_noproxy(const char *name, const char *no_proxy,
+                         bool *spacesep)
+ {
++  char hostip[128];
+   *spacesep = FALSE;
+   /*
+    * If we don't have a hostname at all, like for example with a FILE
+@@ -139,7 +140,6 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy,
+     const char *p = no_proxy;
+     size_t namelen;
+     enum nametype type = TYPE_HOST;
+-    char hostip[128];
+     if(!strcmp("*", no_proxy))
+       return TRUE;
+ 
+-- 
+2.49.0
+
+From e78913e6b5aaf36da6e5e0e68b2300d84ab85d15 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Sat, 1 Jun 2024 12:25:12 +0200
+Subject: [PATCH] noproxy: patterns need to be comma separated
+
+or they will not parse correctly.
+
+Mentioned in DEPRECATED since Janurary 2023 (in 7ad8a7ba9ebdedc).
+
+Closes #13789
+---
+ docs/DEPRECATE.md     | 20 +---------
+ lib/noproxy.c         | 13 +++---
+ lib/noproxy.h         |  4 +-
+ lib/url.c             |  7 +---
+ tests/unit/unit1614.c | 92 ++++++++++++++++++++-----------------------
+ 5 files changed, 50 insertions(+), 86 deletions(-)
+
+diff --git a/docs/DEPRECATE.md b/docs/DEPRECATE.md
+index 0e39903e1..073bc94e3 100644
+--- a/docs/DEPRECATE.md
++++ b/docs/DEPRECATE.md
+@@ -53,3 +34,4 @@ curl removes the support for space-separated names in July 2024.
+  - Pipelining
+  - axTLS
+  - PolarSSL
++ - space-separated `NOPROXY` patterns
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 62299e28f..b5aec75e7 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -119,11 +119,10 @@ enum nametype {
+ * Checks if the host is in the noproxy list. returns TRUE if it matches and
+ * therefore the proxy should NOT be used.
+ ****************************************************************/
+-bool Curl_check_noproxy(const char *name, const char *no_proxy,
+-                        bool *spacesep)
++bool Curl_check_noproxy(const char *name, const char *no_proxy)
+ {
+   char hostip[128];
+-  *spacesep = FALSE;
++
+   /*
+    * If we don't have a hostname at all, like for example with a FILE
+    * transfer, we have nothing to interrogate the noproxy list with.
+@@ -248,11 +247,9 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy,
+       /* pass blanks after pattern */
+       while(ISBLANK(*p))
+         p++;
+-      /* if not a comma! */
+-      if(*p && (*p != ',')) {
+-        *spacesep = TRUE;
+-        continue;
+-      }
++      /* if not a comma, this ends the loop */
++      if(*p != ',')
++        break;
+       /* pass any number of commas */
+       while(*p == ',')
+         p++;
+diff --git a/lib/noproxy.h b/lib/noproxy.h
+index f4890bbf0..71ae7eaaf 100644
+--- a/lib/noproxy.h
++++ b/lib/noproxy.h
+@@ -37,9 +37,7 @@ UNITTEST bool Curl_cidr6_match(const char *ipv6,
+                                unsigned int bits);
+ #endif
+ 
+-bool Curl_check_noproxy(const char *name, const char *no_proxy,
+-                        bool *spacesep);
+-
++bool Curl_check_noproxy(const char *name, const char *no_proxy);
+ #endif
+ 
+ #endif /* HEADER_CURL_NOPROXY_H */
+diff --git a/lib/url.c b/lib/url.c
+index 7287d2d89..41e35e153 100644
+--- a/lib/url.c
++++ b/lib/url.c
+@@ -2374,7 +2374,6 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
+   char *socksproxy = NULL;
+   char *no_proxy = NULL;
+   CURLcode result = CURLE_OK;
+-  bool spacesep = FALSE;
+ 
+   /*************************************************************
+    * Extract the user and password from the authentication string
+@@ -2421,8 +2420,7 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
+   }
+ 
+   if(Curl_check_noproxy(conn->host.name, data->set.str[STRING_NOPROXY] ?
+-                        data->set.str[STRING_NOPROXY] : no_proxy,
+-                        &spacesep)) {
++                        data->set.str[STRING_NOPROXY] : no_proxy)) {
+     Curl_safefree(proxy);
+     Curl_safefree(socksproxy);
+   }
+@@ -2431,9 +2429,6 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
+     /* if the host is not in the noproxy list, detect proxy. */
+     proxy = detect_proxy(data, conn);
+ #endif /* CURL_DISABLE_HTTP */
+-  if(spacesep)
+-    infof(data, "space-separated NOPROXY patterns are deprecated");
+-
+   Curl_safefree(no_proxy);
+ 
+ #ifdef USE_UNIX_SOCKETS
+diff --git a/tests/unit/unit1614.c b/tests/unit/unit1614.c
+index ef03e3b4c..b516db249 100644
+--- a/tests/unit/unit1614.c
++++ b/tests/unit/unit1614.c
+@@ -46,7 +46,6 @@ struct noproxy {
+   const char *a;
+   const char *n;
+   bool match;
+-  bool space; /* space separated */
+ };
+ 
+ UNITTEST_START
+@@ -78,52 +77,51 @@ UNITTEST_START
+     { NULL, NULL, 0, FALSE} /* end marker */
+   };
+   struct noproxy list[]= {
+-    { "www.example.com", "localhost .example.com .example.de", TRUE, TRUE},
+-    { "www.example.com", "localhost,.example.com,.example.de", TRUE, FALSE},
+-    { "www.example.com.", "localhost,.example.com,.example.de", TRUE, FALSE},
+-    { "example.com", "localhost,.example.com,.example.de", TRUE, FALSE},
+-    { "example.com.", "localhost,.example.com,.example.de", TRUE, FALSE},
+-    { "www.example.com", "localhost,.example.com.,.example.de", TRUE, FALSE},
+-    { "www.example.com", "localhost,www.example.com.,.example.de",
+-      TRUE, FALSE},
+-    { "example.com", "localhost,example.com,.example.de", TRUE, FALSE},
+-    { "example.com.", "localhost,example.com,.example.de", TRUE, FALSE},
+-    { "nexample.com", "localhost,example.com,.example.de", FALSE, FALSE},
+-    { "www.example.com", "localhost,example.com,.example.de", TRUE, FALSE},
+-    { "127.0.0.1", "127.0.0.1,localhost", TRUE, FALSE},
+-    { "127.0.0.1", "127.0.0.1,localhost,", TRUE, FALSE},
+-    { "127.0.0.1", "127.0.0.1/8,localhost,", TRUE, FALSE},
+-    { "127.0.0.1", "127.0.0.1/28,localhost,", TRUE, FALSE},
+-    { "127.0.0.1", "127.0.0.1/31,localhost,", TRUE, FALSE},
+-    { "127.0.0.1", "localhost,127.0.0.1", TRUE, FALSE},
++    { "www.example.com", "localhost .example.com .example.de", FALSE},
++    { "www.example.com", "localhost,.example.com,.example.de", TRUE},
++    { "www.example.com.", "localhost,.example.com,.example.de", TRUE},
++    { "example.com", "localhost,.example.com,.example.de", TRUE},
++    { "example.com.", "localhost,.example.com,.example.de", TRUE},
++    { "www.example.com", "localhost,.example.com.,.example.de", TRUE},
++    { "www.example.com", "localhost,www.example.com.,.example.de", TRUE},
++    { "example.com", "localhost,example.com,.example.de", TRUE},
++    { "example.com.", "localhost,example.com,.example.de", TRUE},
++    { "nexample.com", "localhost,example.com,.example.de", FALSE},
++    { "www.example.com", "localhost,example.com,.example.de", TRUE},
++    { "127.0.0.1", "127.0.0.1,localhost", TRUE},
++    { "127.0.0.1", "127.0.0.1,localhost,", TRUE},
++    { "127.0.0.1", "127.0.0.1/8,localhost,", TRUE},
++    { "127.0.0.1", "127.0.0.1/28,localhost,", TRUE},
++    { "127.0.0.1", "127.0.0.1/31,localhost,", TRUE},
++    { "127.0.0.1", "localhost,127.0.0.1", TRUE},
+     { "127.0.0.1", "localhost,127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1."
+       "127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127."
+-      "0.0.1.127.0.0.1.127.0.0." /* 128 bytes "address" */, FALSE, FALSE},
++      "0.0.1.127.0.0.1.127.0.0." /* 128 bytes "address" */, FALSE},
+     { "127.0.0.1", "localhost,127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1."
+       "127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127.0.0.1.127."
+-      "0.0.1.127.0.0.1.127.0.0" /* 127 bytes "address" */, FALSE, FALSE},
+-    { "localhost", "localhost,127.0.0.1", TRUE, FALSE},
+-    { "localhost", "127.0.0.1,localhost", TRUE, FALSE},
+-    { "foobar", "barfoo", FALSE, FALSE},
+-    { "foobar", "foobar", TRUE, FALSE},
+-    { "192.168.0.1", "foobar", FALSE, FALSE},
+-    { "192.168.0.1", "192.168.0.0/16", TRUE, FALSE},
+-    { "192.168.0.1", "192.168.0.0/24", TRUE, FALSE},
+-    { "192.168.0.1", "192.168.0.0/32", FALSE, FALSE},
+-    { "192.168.0.1", "192.168.0.0", FALSE, FALSE},
+-    { "192.168.1.1", "192.168.0.0/24", FALSE, FALSE},
+-    { "192.168.1.1", "foo, bar, 192.168.0.0/24", FALSE, FALSE},
+-    { "192.168.1.1", "foo, bar, 192.168.0.0/16", TRUE, FALSE},
+-    { "[::1]", "foo, bar, 192.168.0.0/16", FALSE, FALSE},
+-    { "[::1]", "foo, bar, ::1/64", TRUE, FALSE},
+-    { "bar", "foo, bar, ::1/64", TRUE, FALSE},
+-    { "BAr", "foo, bar, ::1/64", TRUE, FALSE},
+-    { "BAr", "foo,,,,,              bar, ::1/64", TRUE, FALSE},
+-    { "www.example.com", "foo, .example.com", TRUE, FALSE},
+-    { "www.example.com", "www2.example.com, .example.net", FALSE, FALSE},
+-    { "example.com", ".example.com, .example.net", TRUE, FALSE},
+-    { "nonexample.com", ".example.com, .example.net", FALSE, FALSE},
+-    { NULL, NULL, FALSE, FALSE}
++      "0.0.1.127.0.0.1.127.0.0" /* 127 bytes "address" */, FALSE},
++    { "localhost", "localhost,127.0.0.1", TRUE},
++    { "localhost", "127.0.0.1,localhost", TRUE},
++    { "foobar", "barfoo", FALSE},
++    { "foobar", "foobar", TRUE},
++    { "192.168.0.1", "foobar", FALSE},
++    { "192.168.0.1", "192.168.0.0/16", TRUE},
++    { "192.168.0.1", "192.168.0.0/24", TRUE},
++    { "192.168.0.1", "192.168.0.0/32", FALSE},
++    { "192.168.0.1", "192.168.0.0", FALSE},
++    { "192.168.1.1", "192.168.0.0/24", FALSE},
++    { "192.168.1.1", "foo, bar, 192.168.0.0/24", FALSE},
++    { "192.168.1.1", "foo, bar, 192.168.0.0/16", TRUE},
++    { "[::1]", "foo, bar, 192.168.0.0/16", FALSE},
++    { "[::1]", "foo, bar, ::1/64", TRUE},
++    { "bar", "foo, bar, ::1/64", TRUE},
++    { "BAr", "foo, bar, ::1/64", TRUE},
++    { "BAr", "foo,,,,,              bar, ::1/64", TRUE},
++    { "www.example.com", "foo, .example.com", TRUE},
++    { "www.example.com", "www2.example.com, .example.net", FALSE},
++    { "example.com", ".example.com, .example.net", TRUE},
++    { "nonexample.com", ".example.com, .example.net", FALSE},
++    { NULL, NULL, FALSE}
+   };
+   for(i = 0; list4[i].a; i++) {
+     bool match = Curl_cidr4_match(list4[i].a, list4[i].n, list4[i].bits);
+-- 
+2.49.0
+
+From 4e71f134e5aa3bd77ec645f12826e1823d06b398 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Thu, 6 Jun 2024 22:58:45 +0200
+Subject: [PATCH] noproxy: test bad ipv6 net size first
+
+No need to parse anything if the size is out of range.
+
+Added some tests to this effect to test 1614.
+
+Closes #13902
+---
+ lib/noproxy.c         | 6 ++++--
+ tests/unit/unit1614.c | 4 ++++
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/lib/noproxy.c b/lib/noproxy.c
+index 7df40b8d7..f57a50b43 100644
+--- a/lib/noproxy.c
++++ b/lib/noproxy.c
+@@ -89,12 +89,12 @@ UNITTEST bool Curl_cidr6_match(const char *ipv6,
+ 
+   bytes = bits/8;
+   rest = bits & 0x07;
++  if((bytes > 16) || ((bytes == 16) && rest))
++    return FALSE;
+   if(1 != Curl_inet_pton(AF_INET6, ipv6, address))
+     return FALSE;
+   if(1 != Curl_inet_pton(AF_INET6, network, check))
+     return FALSE;
+-  if((bytes > 16) || ((bytes == 16) && rest))
+-    return FALSE;
+   if(bytes && memcmp(address, check, bytes))
+     return FALSE;
+   if(rest && !((address[bytes] ^ check[bytes]) & (0xff << (8 - rest))))
+@@ -231,6 +231,8 @@ bool Curl_check_noproxy(const char *name, const char *no_proxy)
+           slash = strchr(check, '/');
+           /* if the slash is part of this token, use it */
+           if(slash) {
++            /* if the bits variable gets a crazy value here, that is fine as
++               the value will then be rejected in the cidr function */
+             bits = atoi(slash + 1);
+             *slash = 0; /* null terminate there */
+           }
+diff --git a/tests/unit/unit1614.c b/tests/unit/unit1614.c
+index b516db249..fd6f5849c 100644
+--- a/tests/unit/unit1614.c
++++ b/tests/unit/unit1614.c
+@@ -110,10 +110,14 @@ UNITTEST_START
+     { "192.168.0.1", "192.168.0.0/32", FALSE},
+     { "192.168.0.1", "192.168.0.0", FALSE},
+     { "192.168.1.1", "192.168.0.0/24", FALSE},
++    { "192.168.1.1", "192.168.0.0/33", FALSE},
+     { "192.168.1.1", "foo, bar, 192.168.0.0/24", FALSE},
+     { "192.168.1.1", "foo, bar, 192.168.0.0/16", TRUE},
+     { "[::1]", "foo, bar, 192.168.0.0/16", FALSE},
+     { "[::1]", "foo, bar, ::1/64", TRUE},
++    { "[::1]", "::1/64", TRUE},
++    { "[::1]", "::1/96", TRUE},
++    { "[::1]", "::1/129", FALSE},
+     { "bar", "foo, bar, ::1/64", TRUE},
+     { "BAr", "foo, bar, ::1/64", TRUE},
+     { "BAr", "foo,,,,,              bar, ::1/64", TRUE},
+-- 
+2.49.0
+
