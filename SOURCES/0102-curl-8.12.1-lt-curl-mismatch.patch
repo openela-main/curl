@@ -1,0 +1,11 @@
+--- a/scripts/completion.pl	2025-03-24 11:39:22.649337303 +0100
++++ b/scripts/completion.pl	2025-03-24 11:39:49.595969960 +0100
+@@ -143,7 +143,7 @@
+ 
+ sub call_curl {
+     my ($cmd) = @_;
+-    my $output = `"$curl" $cmd`;
++    my $output = `LD_LIBRARY_PATH=../lib/.libs "$curl" $cmd`;
+     if ($? == -1) {
+         die "Could not run curl: $!";
+     } elsif ((my $exit_code = $? >> 8) != 0) {

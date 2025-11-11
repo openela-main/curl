@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
-Version: 8.9.1
-Release: 5%{?dist}
+Version: 8.12.1
+Release: 2%{?dist}
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -10,14 +10,14 @@ Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
 # which points to the GPG key as of April 7th 2016 of https://daniel.haxx.se/mykey.asc
 Source2: mykey.asc
 
-# fix crashes with transmission due to SIGPIPE
-Patch001: 0001-curl-8.9.1-sigpipe-init-the-struct-so-that-first-apply-ignores.patch
-
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
 
-# do not fail on warnings in the upstream test driver
-Patch102: 0102-curl-7.88.0-tests-warnings.patch
+# link against libcurl from buildroot during shell completions generation
+Patch102: 0102-curl-8.12.1-lt-curl-mismatch.patch
+
+# test616: disable valgrind
+Patch105: 0105-curl-8.11.1-test616.patch
 
 Provides: curl-full = %{version}-%{release}
 # do not fail when trying to install curl-minimal after drop
@@ -88,6 +88,7 @@ BuildRequires: perl(Exporter)
 BuildRequires: perl(File::Basename)
 BuildRequires: perl(File::Copy)
 BuildRequires: perl(File::Spec)
+BuildRequires: perl(I18N::Langinfo)
 BuildRequires: perl(IPC::Open2)
 BuildRequires: perl(List::Util)
 BuildRequires: perl(Memoize)
@@ -218,6 +219,10 @@ sed -e 's|^35$|35,52|' -i tests/data/test323
     eval "$cmd"
 )
 
+# avoid unnecessary arch-dependent line in the processed file
+sed -e '/# Used in @libdir@/d' \
+    -i curl-config.in
+
 # regenerate the configure script and Makefile.in files
 autoreconf -fiv
 
@@ -256,7 +261,6 @@ export common_configure_opts="          \
         --disable-ldaps                 \
         --disable-mqtt                  \
         --disable-ntlm                  \
-        --disable-ntlm-wb               \
         --disable-pop3                  \
         --disable-rtsp                  \
         --disable-smb                   \
@@ -281,7 +285,6 @@ export common_configure_opts="          \
         --enable-ldaps                  \
         --enable-mqtt                   \
         --enable-ntlm                   \
-        --enable-ntlm-wb                \
         --enable-pop3                   \
         --enable-rtsp                   \
         --enable-smb                    \
@@ -348,27 +351,18 @@ install -m 644 docs/libcurl/libcurl.m4 $RPM_BUILD_ROOT%{_datadir}/aclocal
 cd build-full
 %make_install
 
-# install zsh completion for curl
-# (we have to override LD_LIBRARY_PATH because we eliminated rpath)
-LD_LIBRARY_PATH="$RPM_BUILD_ROOT%{_libdir}:$LD_LIBRARY_PATH" \
-    %make_install -C scripts
-
 # do not install /usr/share/fish/completions/curl.fish which is also installed
 # by fish-3.0.2-1.module_f31+3716+57207597 and would trigger a conflict
 rm -rf ${RPM_BUILD_ROOT}%{_datadir}/fish
 
 rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 
-# Don't install man for mk-ca-bundle it's upstream bug
-# should be fixed in next release https://github.com/curl/curl/pull/12843
-rm -f ${RPM_BUILD_ROOT}%{_mandir}/man1/mk-ca-bundle.1*
-
 %ldconfig_scriptlets -n libcurl
 
 %ldconfig_scriptlets -n libcurl-minimal
 
 %files
-%doc CHANGES
+%doc CHANGES.md
 %doc README
 %doc docs/BUGS.md
 %doc docs/FAQ
@@ -401,6 +395,16 @@ rm -f ${RPM_BUILD_ROOT}%{_mandir}/man1/mk-ca-bundle.1*
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Tue Apr 15 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-2
+- revert using tls-ca-bundle.pem instead of ca-bundle.crt (RHEL-56966)
+  (temporary revert to workaround another issue RHEL-85608)
+
+* Wed Mar 19 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-1
+- new upstream release (RHEL-84132)
+
+* Tue Nov 05 2024 Jacek Migacz <jmigacz@redhat.com> - 8.9.1-6
+- use tls-ca-bundle.pem instead of ca-bundle.crt (RHEL-56966)
+
 * Tue Oct 29 2024 Troy Dawson <tdawson@redhat.com> - 8.9.1-5
 - Bump release for October 2024 mass rebuild:
   Resolves: RHEL-64018
