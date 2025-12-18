@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}.8
+Release: 34%{?dist}.9
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -195,6 +195,9 @@ Patch66:  0066-crypto-initialization.patch
 
 # NTLM: force the connection to HTTP/1.1
 Patch67:  0067-curl-7.61.1-ntlm-force-http-1-1.patch
+
+# cookie: don't treat the leading slash as trailing (CVE-2025-9086)
+Patch68:  0068-curl-7.61.1-CVE-2025-9086.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -436,6 +439,7 @@ git apply %{PATCH52}
 %patch -P 65 -p1
 %patch -P 66 -p1
 %patch -P 67 -p1
+%patch -P 68 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -598,6 +602,10 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Fri Oct 24 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.9
+- cookie: don't treat the leading slash as trailing (CVE-2025-9086)
+  Resolves: RHEL-121655
+
 * Mon Jul 21 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.8
 - NTLM: force the connection to HTTP/1.1 (RHEL-73788)
 
