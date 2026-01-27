@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 34%{?dist}
+Release: 35%{?dist}.3
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -121,6 +121,15 @@ Patch39:  0039-curl-7.76.1-pause-on-http.patch
 
 # noproxy: support proxies specified using cidr notation
 Patch40:  0040-curl-7.76.1-noproxy-support-using-cidr.patch
+
+# cookie: don't treat the leading slash as trailing (CVE-2025-9086)
+Patch041: 0041-curl-7.76.1-CVE-2025-9086.patch
+
+# openssl: respect system crypto policy for TLS max version
+Patch042: 0042-curl-7.76.1-respect-system-crypto-policy.patch
+
+# http: fix crash in rate-limited upload
+Patch043: 0043-curl-7.76.1-http-fix-crash-in-rate-limited-upload.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -336,6 +345,9 @@ be installed.
 %patch -P 38 -p1
 %patch -P 39 -p1
 %patch -P 40 -p1
+%patch -P 41 -p1
+%patch -P 42 -p1
+%patch -P 43 -p1
 
 # Fedora patches
 %patch -P 101 -p1
@@ -561,7 +573,20 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Mon Jul 23 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-34
+* Tue Dec 02 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35.el9_7.3
+- http: fix crash in rate-limited upload (RHEL-129493)
+
+* Fri Nov 28 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35.el9_7.2
+- openssl: respect system crypto policy for TLS max version (RHEL-128921)
+
+* Tue Nov 18 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35.el9_7.1
+- rebuild for rhel-9.7.0 z-stream (RHEL-121659)
+
+* Thu Oct 23 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35
+- cookie: don't treat the leading slash as trailing (CVE-2025-9086)
+  Resolves: RHEL-121659
+
+* Wed Jul 23 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-34
 - revert several disabled tests related to openssl/valgrind (RHEL-99465)
 
 * Thu May 15 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-33

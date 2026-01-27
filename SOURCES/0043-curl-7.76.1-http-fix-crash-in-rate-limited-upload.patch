@@ -1,0 +1,42 @@
+From ca8893468f3ca1bcd04a61691878e09b5824180c Mon Sep 17 00:00:00 2001
+From: Jay Satiro <raysatiro@yahoo.com>
+Date: Tue, 29 Jun 2021 11:43:35 -0400
+Subject: [PATCH] http: fix crash in rate-limited upload
+
+- Don't set the size of the piece of data to send to the rate limit if
+  that limit is larger than the buffer size that will hold the piece.
+
+Prior to this change if CURLOPT_MAX_SEND_SPEED_LARGE
+(curl tool: --limit-rate) was set then it was possible that a temporary
+buffer used for uploading could be written to out of bounds. A likely
+scenario for this would be a non-trivial amount of post data combined
+with a rate limit larger than CURLOPT_UPLOAD_BUFFERSIZE (default 64k).
+
+The bug was introduced in 24e469f which is in releases since 7.76.0.
+
+perl -e "print '0' x 200000" > tmp
+curl --limit-rate 128k -d @tmp httpbin.org/post
+
+Reported-by: Richard Marion
+
+Fixes https://github.com/curl/curl/issues/7308
+Closes https://github.com/curl/curl/pull/7315
+---
+ lib/http.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lib/http.c b/lib/http.c
+index 6d5d8fb3b2..ac0301bc41 100644
+--- a/lib/http.c
++++ b/lib/http.c
+@@ -1177,6 +1177,7 @@ static size_t readmoredata(char *buffer,
+   data->req.forbidchunk = (http->sending == HTTPSEND_REQUEST)?TRUE:FALSE;
+ 
+   if(data->set.max_send_speed &&
++     (data->set.max_send_speed < (curl_off_t)fullsize) &&
+      (data->set.max_send_speed < http->postsize))
+     /* speed limit */
+     fullsize = (size_t)data->set.max_send_speed;
+-- 
+2.51.0
+
