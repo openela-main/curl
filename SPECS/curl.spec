@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 2%{?dist}
+Release: 2%{?dist}.2
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -9,6 +9,12 @@ Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
 # to Daniel's address page https://daniel.haxx.se/address.html for the GPG Key,
 # which points to the GPG key as of April 7th 2016 of https://daniel.haxx.se/mykey.asc
 Source2: mykey.asc
+
+# cookie: don't treat the leading slash as trailing (CVE-2025-9086)
+Patch001: 0001-curl-8.12.1-CVE-2025-9086.patch
+
+# openssl: respect system crypto policy for TLS max version
+Patch002: 0002-curl-8.12.1-respect-system-crypto-policy.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -395,6 +401,13 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Thu Nov 27 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-2.el10_1.2
+- openssl: respect system crypto policy for TLS max version (RHEL-128923)
+
+* Wed Oct 22 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-2.el10_1.1
+- cookie: don't treat the leading slash as trailing (CVE-2025-9086)
+  Resolves: RHEL-122689
+
 * Tue Apr 15 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-2
 - revert using tls-ca-bundle.pem instead of ca-bundle.crt (RHEL-56966)
   (temporary revert to workaround another issue RHEL-85608)
