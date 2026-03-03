@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}.9
+Release: 34%{?dist}.10
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -198,6 +198,9 @@ Patch67:  0067-curl-7.61.1-ntlm-force-http-1-1.patch
 
 # cookie: don't treat the leading slash as trailing (CVE-2025-9086)
 Patch68:  0068-curl-7.61.1-CVE-2025-9086.patch
+
+# AWS Signature Version 4 authentication support
+Patch69:  0069-curl-7.61.1-aws-sigv4.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -440,6 +443,7 @@ git apply %{PATCH52}
 %patch -P 66 -p1
 %patch -P 67 -p1
 %patch -P 68 -p1
+%patch -P 69 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -602,6 +606,9 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Wed Dec 03 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.10
+- AWS Signature Version 4 authentication support (RHEL-116183)
+
 * Fri Oct 24 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.9
 - cookie: don't treat the leading slash as trailing (CVE-2025-9086)
   Resolves: RHEL-121655
