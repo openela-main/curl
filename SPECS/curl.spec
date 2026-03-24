@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}.10
+Release: 34%{?dist}.11
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -201,6 +201,9 @@ Patch68:  0068-curl-7.61.1-CVE-2025-9086.patch
 
 # AWS Signature Version 4 authentication support
 Patch69:  0069-curl-7.61.1-aws-sigv4.patch
+
+# noproxy: support proxies specified using cidr notation
+Patch70:  0070-curl-7.61.1-noproxy-support-using-cidr.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -409,7 +412,6 @@ sed -e 's|%%HTTPPORT|%{?__isa_bits}90|g' -i tests/data/test1448
 %patch -P 35 -p1
 %patch -P 36 -p1
 %patch -P 37 -p1
-
 %patch -P 38 -p1
 sed -e 's|:8992/|:%{?__isa_bits}92/|g' -i tests/data/test97{3..6}
 
@@ -444,6 +446,7 @@ git apply %{PATCH52}
 %patch -P 67 -p1
 %patch -P 68 -p1
 %patch -P 69 -p1
+%patch -P 70 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -457,7 +460,9 @@ automake
 # <https://github.com/bagder/curl/commit/21e82bd6#commitcomment-12226582>
 # and test 1900, which is flaky and covers a deprecated feature of libcurl
 # <https://github.com/curl/curl/pull/2705>
-printf "1112\n1455\n1801\n1900\n" >> tests/data/DISABLED
+# disable test 1456 - requires test framework features not available in 7.61.1
+# (crlf attribute support for <protocol> tag)
+printf "1112\n1455\n1456\n1801\n1900\n" >> tests/data/DISABLED
 
 # disable test 1319 on ppc64 (server times out)
 %ifarch ppc64
@@ -606,6 +611,10 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Tue Jan 13 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.11
+- noproxy: support proxies specified using cidr notation (RHEL-86910)
+- disable test1456 (requires test framework features not in 7.61.1)
+
 * Wed Dec 03 2025 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.10
 - AWS Signature Version 4 authentication support (RHEL-116183)
 

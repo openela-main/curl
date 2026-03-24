@@ -1,0 +1,268 @@
+From 1e9a538e05c0107c54ef81d9de7cd0b27cd13309 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Thu, 20 Oct 2022 15:21:12 +0200
+Subject: [PATCH] noproxy: support proxies specified using cidr notation
+
+For both IPv4 and IPv6 addresses. Now also checks IPv6 addresses "correctly"
+and not with string comparisons.
+
+Backported to curl 7.61.1 for RHEL 8.
+
+Reported-by: Mathieu Carbonneaux
+Fixes #9773
+Fixes #5745
+Closes #9775
+---
+index f159008..d151f5c 100644
+--- a/lib/url.c
++++ b/lib/url.c
+@@ -2509,6 +2509,75 @@ void Curl_free_request_state(struct Curl_easy *data)
+ 
+ 
+ #ifndef CURL_DISABLE_PROXY
++
++/*
++ * Curl_cidr4_match() returns TRUE if the given IPv4 address is within the
++ * specified CIDR address range.
++ */
++static bool Curl_cidr4_match(const char *ipv4,    /* 1.2.3.4 address */
++                             const char *network, /* 1.2.3.4 address */
++                             unsigned int bits)
++{
++  unsigned int address = 0;
++  unsigned int check = 0;
++
++  if(bits > 32)
++    /* strange input */
++    return FALSE;
++
++  if(1 != Curl_inet_pton(AF_INET, ipv4, &address))
++    return FALSE;
++  if(1 != Curl_inet_pton(AF_INET, network, &check))
++    return FALSE;
++
++  if(!bits)
++    return TRUE; /* /0 means all addresses match */
++
++  if(bits && (bits != 32)) {
++    unsigned int mask = 0xffffffff << (32 - bits);
++    unsigned int haddr = htonl(address);
++    unsigned int hcheck = htonl(check);
++    if((haddr ^ hcheck) & mask)
++      return FALSE;
++    return TRUE;
++  }
++  return (address == check);
++}
++
++static bool Curl_cidr6_match(const char *ipv6,
++                             const char *network,
++                             unsigned int bits)
++{
++  int bytes;
++  int rest;
++  unsigned char address[16];
++  unsigned char check[16];
++
++  if(!bits)
++    bits = 128;
++
++  bytes = bits/8;
++  rest = bits & 0x07;
++  if((bytes > 16) || ((bytes == 16) && rest))
++    return FALSE;
++  if(1 != Curl_inet_pton(AF_INET6, ipv6, address))
++    return FALSE;
++  if(1 != Curl_inet_pton(AF_INET6, network, check))
++    return FALSE;
++  if(bytes && memcmp(address, check, bytes))
++    return FALSE;
++  if(rest && !((address[bytes] ^ check[bytes]) & (0xff << (8 - rest))))
++    return FALSE;
++
++  return TRUE;
++}
++
++enum nametype {
++  TYPE_HOST,
++  TYPE_IPV4,
++  TYPE_IPV6
++};
++
+ /****************************************************************
+ * Checks if the host is in the noproxy list. returns true if it matches
+ * and therefore the proxy should NOT be used.
+@@ -2521,70 +2590,127 @@ static bool check_noproxy(const char *name, const char *no_proxy)
+    *   all proxy variables)
+    */
+   if(no_proxy && no_proxy[0]) {
+-    size_t tok_start;
+-    size_t tok_end;
+-    const char *separator = ", ";
+-    size_t no_proxy_len;
++    const char *p = no_proxy;
+     size_t namelen;
+-    char *endptr;
+-    if(strcasecompare("*", no_proxy)) {
++    enum nametype type = TYPE_HOST;
++    char hostip[128];
++    if(strcasecompare("*", no_proxy))
+       return TRUE;
+-    }
+ 
+     /* NO_PROXY was specified and it wasn't just an asterisk */
+ 
+-    no_proxy_len = strlen(no_proxy);
+     if(name[0] == '[') {
++      char *endptr;
+       /* IPv6 numerical address */
+       endptr = strchr(name, ']');
+       if(!endptr)
+         return FALSE;
+       name++;
+-    }
+-    else
+-      endptr = strchr(name, ':');
+-    if(endptr)
+       namelen = endptr - name;
+-    else
+-      namelen = strlen(name);
+-
+-    for(tok_start = 0; tok_start < no_proxy_len; tok_start = tok_end + 1) {
+-      while(tok_start < no_proxy_len &&
+-            strchr(separator, no_proxy[tok_start]) != NULL) {
+-        /* Look for the beginning of the token. */
+-        ++tok_start;
++      if(namelen >= sizeof(hostip))
++        return FALSE;
++      memcpy(hostip, name, namelen);
++      hostip[namelen] = 0;
++      name = hostip;
++      type = TYPE_IPV6;
++    }
++    else {
++      char *portptr;
++      unsigned int address;
++      /* First, strip off any port number */
++      portptr = strchr(name, ':');
++      if(portptr)
++        namelen = portptr - name;
++      else
++        namelen = strlen(name);
++
++      /* Copy name without port to buffer for type detection */
++      if(namelen >= sizeof(hostip))
++        namelen = sizeof(hostip) - 1;
++      memcpy(hostip, name, namelen);
++      hostip[namelen] = 0;
++
++      /* Now check if it's an IPv4 address */
++      if(1 == Curl_inet_pton(AF_INET, hostip, &address)) {
++        type = TYPE_IPV4;
++        name = hostip;
+       }
++      else {
++        /* It's a hostname - namelen already excludes port */
++      }
++    }
+ 
+-      if(tok_start == no_proxy_len)
+-        break; /* It was all trailing separator chars, no more tokens. */
++    while(*p) {
++      const char *token;
++      size_t tokenlen = 0;
++      bool match = FALSE;
+ 
+-      for(tok_end = tok_start; tok_end < no_proxy_len &&
+-            strchr(separator, no_proxy[tok_end]) == NULL; ++tok_end)
+-        /* Look for the end of the token. */
+-        ;
++      /* pass blanks */
++      while(*p && ISBLANK(*p))
++        p++;
+ 
+-      /* To match previous behaviour, where it was necessary to specify
+-       * ".local.com" to prevent matching "notlocal.com", we will leave
+-       * the '.' off.
+-       */
+-      if(no_proxy[tok_start] == '.')
+-        ++tok_start;
+-
+-      if((tok_end - tok_start) <= namelen) {
+-        /* Match the last part of the name to the domain we are checking. */
+-        const char *checkn = name + namelen - (tok_end - tok_start);
+-        if(strncasecompare(no_proxy + tok_start, checkn,
+-                           tok_end - tok_start)) {
+-          if((tok_end - tok_start) == namelen || *(checkn - 1) == '.') {
+-            /* We either have an exact match, or the previous character is a .
+-             * so it is within the same domain, so no proxy for this host.
+-             */
+-            return TRUE;
++      token = p;
++      /* pass over the pattern */
++      while(*p && !ISBLANK(*p) && (*p != ',')) {
++        p++;
++        tokenlen++;
++      }
++
++      if(tokenlen) {
++        switch(type) {
++        case TYPE_HOST:
++          /* Skip leading dot in token */
++          if(tokenlen && (*token == '.')) {
++            token++;
++            tokenlen--;
++          }
++          /* A: example.com matches 'example.com'
++             B: www.example.com matches 'example.com'
++             C: nonexample.com DOES NOT match 'example.com' */
++          if(tokenlen == namelen)
++            /* case A, exact match */
++            match = strncasecompare(token, name, namelen);
++          else if(tokenlen < namelen) {
++            /* case B, tailmatch domain */
++            match = (name[namelen - tokenlen - 1] == '.') &&
++              strncasecompare(token, name + (namelen - tokenlen), tokenlen);
+           }
++          /* case C passes through, not a match */
++          break;
++        case TYPE_IPV4:
++          /* FALLTHROUGH */
++        case TYPE_IPV6: {
++          const char *check = token;
++          char *slash;
++          unsigned int bits = 0;
++          char checkip[128];
++          if(tokenlen >= sizeof(checkip))
++            /* this cannot match */
++            break;
++          /* copy the check name to a temp buffer */
++          memcpy(checkip, check, tokenlen);
++          checkip[tokenlen] = 0;
++          check = checkip;
++
++          slash = strchr(check, '/');
++          /* if the slash is part of this token, use it */
++          if(slash) {
++            bits = atoi(slash + 1);
++            *slash = 0;
++          }
++          if(type == TYPE_IPV6)
++            match = Curl_cidr6_match(name, check, bits);
++          else
++            match = Curl_cidr4_match(name, check, bits);
++          break;
++        }
+         }
+-      } /* if((tok_end - tok_start) <= namelen) */
+-    } /* for(tok_start = 0; tok_start < no_proxy_len;
+-         tok_start = tok_end + 1) */
++        if(match)
++          return TRUE;
++      } /* if(tokenlen) */
++      while(*p == ',')
++        p++;
++    } /* while(*p) */
+   } /* NO_PROXY was specified and it wasn't just an asterisk */
+ 
+   return FALSE;
