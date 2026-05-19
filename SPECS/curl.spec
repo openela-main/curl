@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 2%{?dist}.2
+Release: 4%{?dist}
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -401,12 +401,12 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Thu Nov 27 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-2.el10_1.2
-- openssl: respect system crypto policy for TLS max version (RHEL-128923)
+* Mon Nov 17 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4
+- openssl: respect system crypto policy for TLS max version (RHEL-128916)
 
-* Wed Oct 22 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-2.el10_1.1
+* Mon Oct 20 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-3
 - cookie: don't treat the leading slash as trailing (CVE-2025-9086)
-  Resolves: RHEL-122689
+  Resolves: RHEL-121672
 
 * Tue Apr 15 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-2
 - revert using tls-ca-bundle.pem instead of ca-bundle.crt (RHEL-56966)
