@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 35%{?dist}.3
+Release: 40%{?dist}
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -573,14 +573,20 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Tue Dec 02 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35.el9_7.3
-- http: fix crash in rate-limited upload (RHEL-129493)
+* Wed Jan 21 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40
+- openssl: fix libssh compatibility by preserving original SSL_CTX behavior (RHEL-134721)
 
-* Fri Nov 28 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35.el9_7.2
-- openssl: respect system crypto policy for TLS max version (RHEL-128921)
+* Thu Dec 18 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-39
+- openssl: fix libssh compatibility in crypto-policy patch (RHEL-134721)
 
-* Tue Nov 18 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35.el9_7.1
-- rebuild for rhel-9.7.0 z-stream (RHEL-121659)
+* Mon Dec 01 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-38
+- http: fix crash in rate-limited upload (RHEL-131696)
+
+* Thu Nov 27 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-37
+- openssl: respect system crypto policy for TLS max version (RHEL-128914)
+
+* Thu Nov 20 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-36
+- rebuild for c9s (RHEL-125838)
 
 * Thu Oct 23 2025 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-35
 - cookie: don't treat the leading slash as trailing (CVE-2025-9086)

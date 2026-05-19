@@ -22,26 +22,38 @@ policies are mandatory:
 - RHEL/Fedora cannot achieve government certifications
 - System administrators cannot enforce TLS version restrictions
 
-The fix: only call SSL_CTX_set_max_proto_version() when user explicitly
-requests a specific maximum version. Otherwise, let OpenSSL use its
-configured default from crypto-policy.
+The fix: when user explicitly requests a specific maximum version, honor it.
+Otherwise, query the current crypto-policy setting. If the policy restricts
+TLS to a version lower than 1.3, respect that restriction. If the policy
+allows TLS 1.3 (the highest), use 0 to maintain the original behavior.
+
+This approach:
+- Respects crypto-policy when it actually restricts TLS versions
+- Maintains original behavior (calling with 0) when no restriction applies
+- Preserves compatibility with other libraries like libssh (bz2091512)
+- Ensures SSL_CTX_set_max_proto_version() is always called (RHEL-134721)
+
+Note: Previous versions had issues:
+- v1: Skipped calling SSL_CTX_set_max_proto_version() entirely, breaking libssh
+- v2: Always called with policy_max value, but on DEFAULT policy this returns
+  TLS1_3_VERSION instead of 0, which differs from original behavior and
+  still caused libssh regression
+
+This v3 fix preserves original behavior (call with 0) when crypto-policy
+allows TLS 1.3, and only applies restrictions for FIPS/restrictive policies.
 
 This mirrors the intended behavior of the minimum version logic, where
 explicit user choice overrides defaults, but system configuration is
 respected otherwise.
-
-Tested on RHEL 9.6+, RHEL 10, and Fedora Rawhide.
-
-Bug: https://github.com/curl/curl/issues/XXXXX
 ---
- lib/vtls/openssl.c | 26 +++++++++++++++-----------
- 1 file changed, 15 insertions(+), 11 deletions(-)
+ lib/vtls/openssl.c | 50 +++++++++++++++++++++++++++++++++++-------------
+ 1 file changed, 37 insertions(+), 13 deletions(-)
 
 diff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c
 index 1234567890..abcdef1234 100644
 --- a/lib/vtls/openssl.c
 +++ b/lib/vtls/openssl.c
-@@ -2354,19 +2354,22 @@ set_ssl_version_min_max(SSL_CTX *ctx, struct connectdata *conn)
+@@ -2354,19 +2354,43 @@
        ossl_ssl_version_max = TLS1_3_VERSION;
        break;
  #endif
@@ -55,25 +67,44 @@ index 1234567890..abcdef1234 100644
 -      ossl_ssl_version_max = 0;
 -      break;
    }
- 
+
 -  if(!SSL_CTX_set_max_proto_version(ctx, ossl_ssl_version_max)) {
 -    return CURLE_SSL_CONNECT_ERROR;
-+  /* Only set max version if user explicitly requested a specific version
-+     via --tls-max option. This honors user intent when specified.
++  /* Set max version based on user choice or crypto-policy.
 +
-+     When user accepts default (CURL_SSLVERSION_MAX_DEFAULT or MAX_NONE),
-+     we skip calling SSL_CTX_set_max_proto_version() entirely, allowing
-+     OpenSSL to use its configured default from system crypto-policy.
++     When user explicitly sets --tls-max, honor that choice (app control).
++     When user accepts default, respect crypto-policy (system policy).
 +
-+     This is a deliberate compromise: explicit user choice overrides system
-+     policy, but system policy is respected when user doesn't specify. */
++     IMPORTANT: We always call SSL_CTX_set_max_proto_version() to maintain
++     compatibility with other libraries like libssh. Skipping this call
++     or calling with different values can affect libraries that depend on
++     specific OpenSSL initialization sequences. See RHEL-134721. */
 +  if(curl_ssl_version_max != CURL_SSLVERSION_MAX_NONE &&
 +     curl_ssl_version_max != CURL_SSLVERSION_MAX_DEFAULT) {
++    /* User explicitly requested a specific max version - honor it */
 +    if(!SSL_CTX_set_max_proto_version(ctx, ossl_ssl_version_max)) {
 +      return CURLE_SSL_CONNECT_ERROR;
 +    }
++  }
++  else {
++    /* User didn't specify - check crypto-policy.
++       Query the current max version setting from crypto-policy config.
++       If policy restricts to below TLS 1.3, respect that restriction.
++       Otherwise, use 0 (highest available) to maintain original behavior
++       which is required for libssh compatibility (bz2091512). */
++    long policy_max = SSL_CTX_get_max_proto_version(ctx);
++#ifdef TLS1_3_VERSION
++    if(policy_max == 0 || policy_max >= TLS1_3_VERSION) {
++      /* No restriction or TLS 1.3 allowed - use original behavior */
++      policy_max = 0;
++    }
++    /* else: policy restricts to TLS 1.2 or lower, respect it */
++#else
++    policy_max = 0;
++#endif
++    if(!SSL_CTX_set_max_proto_version(ctx, policy_max)) {
++      return CURLE_SSL_CONNECT_ERROR;
++    }
    }
- 
+
    return CURLE_OK;
---
-2.45.2
