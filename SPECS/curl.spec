@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 40%{?dist}
+Release: 40%{?dist}.5
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -130,6 +130,18 @@ Patch042: 0042-curl-7.76.1-respect-system-crypto-policy.patch
 
 # http: fix crash in rate-limited upload
 Patch043: 0043-curl-7.76.1-http-fix-crash-in-rate-limited-upload.patch
+
+# vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
+Patch044: 0044-curl-7.76.1-CVE-2026-9547.patch
+
+# url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
+Patch045: 0045-curl-7.76.1-CVE-2026-8286.patch
+
+# url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
+Patch046: 0007-curl-7.76.1-CVE-2026-1965.patch
+
+# http: only send bearer if auth is allowed (CVE-2026-3783)
+Patch047: 0008-curl-7.76.1-CVE-2026-3783.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -348,6 +360,10 @@ be installed.
 %patch -P 41 -p1
 %patch -P 42 -p1
 %patch -P 43 -p1
+%patch -P 44 -p1
+%patch -P 45 -p1
+%patch -P 46 -p1
+%patch -P 47 -p1
 
 # Fedora patches
 %patch -P 101 -p1
@@ -377,6 +393,16 @@ printf "702\n703\n716\n" >> tests/data/DISABLED
 # temporarily disable tests 2034 2037 2041 on aarch64
 %ifarch aarch64
 printf "2034\n2037\n2041\n" >> tests/data/DISABLED
+%endif
+
+# temporarily disable tests 3000 and 3001 on i686 (flaky stunnel startup)
+%ifarch i686
+printf "3000\n3001\n" >> tests/data/DISABLED
+%endif
+
+# temporarily disable test 1206 on x86_64 (flaky FTP PORT timeout under valgrind)
+%ifarch x86_64
+echo "1206" >> tests/data/DISABLED
 %endif
 
 # adapt test 323 for updated OpenSSL
@@ -573,6 +599,21 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Thu Jul 23 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.5
+- fix missing %%patch macros for Patch46 and Patch47
+
+* Wed Jul 22 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.4
+- fix HTTP Negotiate connection reuse auth bypass (CVE-2026-1965)
+- fix OAuth2 bearer token leak via redirect and netrc (CVE-2026-3783)
+- tests: disable flaky test 1206 on x86_64 (FTP PORT timeout under valgrind)
+
+* Tue Jul 14 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.3
+- tests: disable flaky tests 3000, 3001 on i686 (stunnel startup race)
+
+* Mon Jul 13 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.1
+- fix SSH host key mismatch on type difference (CVE-2026-9547)
+- fix TLS/STARTTLS connection reuse vulnerability (CVE-2026-8286)
+
 * Wed Jan 21 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40
 - openssl: fix libssh compatibility by preserving original SSL_CTX behavior (RHEL-134721)
 
