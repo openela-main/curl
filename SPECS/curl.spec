@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 4%{?dist}
+Release: 4%{?dist}.4
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -15,6 +15,30 @@ Patch001: 0001-curl-8.12.1-CVE-2025-9086.patch
 
 # openssl: respect system crypto policy for TLS max version
 Patch002: 0002-curl-8.12.1-respect-system-crypto-policy.patch
+
+# openssl: toggling CURLSSLOPT_NO_PARTIALCHAIN makes a different CA cache (CVE-2025-14819)
+Patch003: 0003-curl-8.12.1-CVE-2025-14819.patch
+
+# vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
+Patch004: 0004-curl-8.12.1-CVE-2026-9547.patch
+
+# tool_operate: fix schemeless URL handling with --proto-default (CVE-2026-12064)
+Patch005: 0005-curl-8.12.1-CVE-2026-12064.patch
+
+# url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
+Patch006: 0006-curl-8.12.1-CVE-2026-8286.patch
+
+# url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
+Patch007: 0007-curl-8.12.1-CVE-2026-1965.patch
+
+# http: only send bearer if auth is allowed (CVE-2026-3783)
+Patch008: 0008-curl-8.12.1-CVE-2026-3783.patch
+
+# proxy-auth: check proxy credentials on connection reuse (CVE-2026-3784)
+Patch009: 0009-curl-8.12.1-CVE-2026-3784.patch
+
+# url: detect proxy changes read from environment (CVE-2026-8927)
+Patch010: 0010-curl-8.12.1-CVE-2026-8927.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -401,6 +425,22 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Wed Jul 29 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 8.12.1-4.4
+- fix proxy environment variable change detection (CVE-2026-8927)
+
+* Wed Jul 22 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.el10_2.3
+- fix HTTP Negotiate connection reuse auth bypass (CVE-2026-1965)
+- fix OAuth2 bearer token leak via redirect and netrc (CVE-2026-3783)
+- fix proxy connection reuse with wrong credentials (CVE-2026-3784)
+
+* Mon Jul 13 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.2
+- fix SSH host key mismatch on type difference (CVE-2026-9547)
+- fix schemeless URL handling with --proto-default (CVE-2026-12064)
+- fix TLS/STARTTLS connection reuse vulnerability (CVE-2026-8286)
+
+* Mon Apr 20 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.1
+- openssl: fix CA cache reuse with CURLSSLOPT_NO_PARTIALCHAIN (CVE-2025-14819)
+
 * Mon Nov 17 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4
 - openssl: respect system crypto policy for TLS max version (RHEL-128916)
 
