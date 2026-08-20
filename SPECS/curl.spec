@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}.11
+Release: 34%{?dist}.13
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -204,6 +204,9 @@ Patch69:  0069-curl-7.61.1-aws-sigv4.patch
 
 # noproxy: support proxies specified using cidr notation
 Patch70:  0070-curl-7.61.1-noproxy-support-using-cidr.patch
+
+# url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
+Patch71:  0071-curl-7.61.1-CVE-2026-8286.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -447,6 +450,7 @@ git apply %{PATCH52}
 %patch -P 68 -p1
 %patch -P 69 -p1
 %patch -P 70 -p1
+%patch -P 71 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -611,6 +615,12 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Mon Jul 13 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.13
+- fix TLS/STARTTLS connection reuse vulnerability (CVE-2026-8286)
+
+* Tue May 06 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.12
+- NTLM: use HTTP/1.0 instead of HTTP/1.1 for compatibility (RHEL-171912)
+
 * Tue Jan 13 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.11
 - noproxy: support proxies specified using cidr notation (RHEL-86910)
 - disable test1456 (requires test framework features not in 7.61.1)
