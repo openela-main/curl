@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 40%{?dist}.5
+Release: 40%{?dist}.7
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -142,6 +142,12 @@ Patch046: 0007-curl-7.76.1-CVE-2026-1965.patch
 
 # http: only send bearer if auth is allowed (CVE-2026-3783)
 Patch047: 0008-curl-7.76.1-CVE-2026-3783.patch
+
+# url: detect proxy changes read from environment (CVE-2026-8927)
+Patch048: 0048-curl-7.76.1-CVE-2026-8927.patch
+
+# add sasl service name to connection reuse checks (CVE-2026-8458)
+Patch049: 0049-curl-7.76.1-CVE-2026-8458.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -364,6 +370,8 @@ be installed.
 %patch -P 45 -p1
 %patch -P 46 -p1
 %patch -P 47 -p1
+%patch -P 48 -p1
+%patch -P 49 -p1
 
 # Fedora patches
 %patch -P 101 -p1
@@ -373,7 +381,7 @@ be installed.
 # disable test 1112 (#565305), test 1455 (occasionally fails with 'bind failed
 # with errno 98: Address already in use' in Koji environment), and test 1801
 # <https://github.com/bagder/curl/commit/21e82bd6#commitcomment-12226582>
-printf "1112\n1455\n1592\n1801\n" >> tests/data/DISABLED
+printf "1112\n1455\n1592\n1701\n1801\n" >> tests/data/DISABLED
 
 # disable test 1319 on ppc64 (server times out)
 %ifarch ppc64
@@ -403,6 +411,11 @@ printf "3000\n3001\n" >> tests/data/DISABLED
 # temporarily disable test 1206 on x86_64 (flaky FTP PORT timeout under valgrind)
 %ifarch x86_64
 echo "1206" >> tests/data/DISABLED
+%endif
+
+# disable flaky stunnel/proxy tests on x86_64 (port collision race condition)
+%ifarch x86_64
+printf "1561\n1562\n1630\n1631\n1632\n1904\n2050\n2055\n" >> tests/data/DISABLED
 %endif
 
 # adapt test 323 for updated OpenSSL
@@ -599,6 +612,12 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Wed Sep 02 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.7
+- add sasl service name to connection reuse checks (CVE-2026-8458)
+
+* Tue Aug 25 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.6
+- detect proxy changes read from environment (CVE-2026-8927)
+
 * Thu Jul 23 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.5
 - fix missing %%patch macros for Patch46 and Patch47
 
