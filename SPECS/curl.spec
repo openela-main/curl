@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 4%{?dist}.4
+Release: 4%{?dist}.6
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -39,6 +39,24 @@ Patch009: 0009-curl-8.12.1-CVE-2026-3784.patch
 
 # url: detect proxy changes read from environment (CVE-2026-8927)
 Patch010: 0010-curl-8.12.1-CVE-2026-8927.patch
+
+# Fix SASL service name connection reuse bypass (CVE-2026-8458)
+Patch011: 0011-curl-8.12.1-CVE-2026-8458.patch
+
+# tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
+Patch012: 0012-curl-8.12.1-CVE-2026-8932.patch
+
+# setopt: clear proxy auth properly on NULL (CVE-2026-9079)
+Patch013: 0013-curl-8.12.1-CVE-2026-9079.patch
+
+# cookie: trim trailing dots when checking PSL (CVE-2026-8924)
+Patch014: 0014-curl-8.12.1-CVE-2026-8924.patch
+
+# digest: flush state on origin or credential change (CVE-2026-11856)
+Patch015: 0015-curl-8.12.1-CVE-2026-11856.patch
+
+# netrc: reject password for non-matching login (CVE-2026-8926)
+Patch016: 0016-curl-8.12.1-CVE-2026-8926.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -237,6 +255,9 @@ sed -e 's|NUM_THREADS 1000$|NUM_THREADS 256|' \
     -i tests/libtest/lib3026.c
 %endif
 
+# disable test 1701 (nghttpx rejects h2c upgrade with POST after CVE-2026-27135)
+echo "1701" >> tests/data/DISABLED
+
 # adapt test 323 for updated OpenSSL
 sed -e 's|^35$|35,52|' -i tests/data/test323
 
@@ -425,6 +446,17 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Thu Sep 03 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.6
+- fix cookie injection via trailing dot super cookies (CVE-2026-8924)
+- fix digest auth state leak on origin or credential change (CVE-2026-11856)
+- fix netrc password lookup for non-matching login (CVE-2026-8926)
+
+* Mon Aug 31 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.5
+- fix proxy auth not cleared properly on NULL (CVE-2026-9079)
+- fix incomplete mTLS config in connection reuse and session cache
+  (CVE-2026-8932)
+- fix SASL service name connection reuse bypass (CVE-2026-8458)
+
 * Wed Jul 29 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 8.12.1-4.4
 - fix proxy environment variable change detection (CVE-2026-8927)
 
