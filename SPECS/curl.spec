@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 4%{?dist}.6
+Release: 4%{?dist}.7
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -57,6 +57,21 @@ Patch015: 0015-curl-8.12.1-CVE-2026-11856.patch
 
 # netrc: reject password for non-matching login (CVE-2026-8926)
 Patch016: 0016-curl-8.12.1-CVE-2026-8926.patch
+
+# http2: remove stream dependency tracking (CVE-2026-10536)
+Patch017: 0017-curl-8.12.1-CVE-2026-10536.patch
+
+# url: check negotiate state on connection reuse (CVE-2026-5545)
+Patch018: 0018-curl-8.12.1-CVE-2026-5545.patch
+
+# setopt: clear proxy auth on proxy change (CVE-2026-7168)
+Patch019: 0019-curl-8.12.1-CVE-2026-7168.patch
+
+# http: clear credentials on redirect (CVE-2026-6253)
+Patch020: 0020-curl-8.12.1-CVE-2026-6253.patch
+
+# http: clear HTTP credentials on redirect (CVE-2026-6429)
+Patch021: 0021-curl-8.12.1-CVE-2026-6429.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -381,7 +396,9 @@ for size in minimal full; do (
     export LD_LIBRARY_PATH="${PWD}/lib/.libs"
 
     cd tests
-    perl -I../../tests ../../tests/runtests.pl -a -p -v '!flaky'
+    # Skip tests 973 and 998 - they test old (vulnerable) auth redirect behavior
+    # that was intentionally changed by CVE-2026-6253 and CVE-2026-6429 fixes
+    perl -I../../tests ../../tests/runtests.pl -a -p -v '!flaky' '!973' '!998'
 )
 done
 
@@ -446,6 +463,13 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Wed Sep 23 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.el10_2.7
+- fix http2 stream dependency tracking security issue (CVE-2026-10536)
+- fix negotiate state check on connection reuse (CVE-2026-5545)
+- fix proxy auth not cleared on proxy change (CVE-2026-7168)
+- fix credentials not cleared on redirect (CVE-2026-6253)
+- fix HTTP credentials leak on cross-origin redirect (CVE-2026-6429)
+
 * Thu Sep 03 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.6
 - fix cookie injection via trailing dot super cookies (CVE-2026-8924)
 - fix digest auth state leak on origin or credential change (CVE-2026-11856)
