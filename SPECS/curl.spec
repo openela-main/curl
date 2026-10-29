@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.61.1
-Release: 34%{?dist}.13
+Release: 34%{?dist}.18
 License: MIT
 Source: https://curl.haxx.se/download/%{name}-%{version}.tar.xz
 
@@ -207,6 +207,25 @@ Patch70:  0070-curl-7.61.1-noproxy-support-using-cidr.patch
 
 # url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
 Patch71:  0071-curl-7.61.1-CVE-2026-8286.patch
+
+# h2: allow 100 streams by default until peer SETTINGS (RHEL-232829)
+Patch72:  0072-curl-7.61.1-h2-default-max-concurrent-streams.patch
+
+# url: detect proxy changes read from environment (CVE-2026-8927)
+Patch73:  0073-curl-7.61.1-CVE-2026-8927.patch
+
+# add sasl service name to connection reuse checks (CVE-2026-8458)
+Patch74:  0074-curl-7.61.1-CVE-2026-8458.patch
+
+# cookie: trim trailing dots when checking PSL (CVE-2026-8924)
+Patch75:  0075-curl-7.61.1-CVE-2026-8924.patch
+
+# digest: flush state on origin or credential change (CVE-2026-11856)
+Patch76:  0076-curl-7.61.1-CVE-2026-11856.patch
+
+# tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
+# https://github.com/curl/curl/commit/7541ae569d82fb308a5e2d94
+Patch77: 0077-curl-7.76.1-CVE-2026-8932.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -451,6 +470,12 @@ git apply %{PATCH52}
 %patch -P 69 -p1
 %patch -P 70 -p1
 %patch -P 71 -p1
+%patch -P 72 -p1
+%patch -P 73 -p1
+%patch -P 74 -p1
+%patch -P 75 -p1
+%patch -P 76 -p1
+%patch -P 77 -p1
 
 # make tests/*.py use Python 3
 sed -e '1 s|^#!/.*python|#!%{__python3}|' -i tests/*.py
@@ -466,7 +491,9 @@ automake
 # <https://github.com/curl/curl/pull/2705>
 # disable test 1456 - requires test framework features not available in 7.61.1
 # (crlf attribute support for <protocol> tag)
-printf "1112\n1455\n1456\n1801\n1900\n" >> tests/data/DISABLED
+
+# disable test 1701 - nghttpx rejects h2c POST+Upgrade after CVE-2026-58055
+printf "1112\n1455\n1456\n1701\n1801\n1900\n" >> tests/data/DISABLED
 
 # disable test 1319 on ppc64 (server times out)
 %ifarch ppc64
@@ -615,10 +642,27 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Thu Sep 24 2026 Marian Koncek <mkoncek@redhat.com> - 7.61.1-34.el8_10.18
+- fix incomplete mTLS config in connection reuse (CVE-2026-8932)
+
+* Thu Sep 03 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.17
+- fix cookie injection via trailing dot super cookies (CVE-2026-8924)
+- fix digest auth state leak on origin or credential change (CVE-2026-11856)
+
+* Wed Sep 02 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.16
+- add sasl service name to connection reuse checks (CVE-2026-8458)
+
+* Mon Aug 31 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.15
+- detect proxy changes read from environment (CVE-2026-8927)
+
+* Mon Aug 24 2026 Dipti Patil <dipatil@redhat.com> - 7.61.1-34.el8_10.14
+- h2: allow 100 streams by default (RHEL-232829)
+- tests: disable 1701 (h2c POST Upgrade vs nghttpx CVE-2026-58055)
+
 * Mon Jul 13 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.13
 - fix TLS/STARTTLS connection reuse vulnerability (CVE-2026-8286)
 
-* Tue May 06 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.12
+* Wed May 06 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.12
 - NTLM: use HTTP/1.0 instead of HTTP/1.1 for compatibility (RHEL-171912)
 
 * Tue Jan 13 2026 Jacek Migacz <jmigacz@redhat.com> - 7.61.1-34.el8_10.11

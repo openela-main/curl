@@ -1,0 +1,22 @@
+From: Daniel Stenberg <daniel@haxx.se>
+Subject: [PATCH] h2: allow 100 streams by default
+
+Backport of upstream curl PR #6852.
+Until the peer SETTINGS frame arrives, use 100 concurrent streams
+instead of 13.
+
+Resolves: RHEL-232829
+---
+ lib/http2.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/http2.h b/lib/http2.h
+--- a/lib/http2.h
++++ b/lib/http2.h
+@@ -30,5 +30,5 @@
+ /* value for MAX_CONCURRENT_STREAMS we use until we get an updated setting
+    from the peer */
+-#define DEFAULT_MAX_CONCURRENT_STREAMS 13
++#define DEFAULT_MAX_CONCURRENT_STREAMS 100
+ 
+ /*
