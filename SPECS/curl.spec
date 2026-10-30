@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 40%{?dist}.8
+Release: 40%{?dist}.9
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -154,6 +154,10 @@ Patch050: 0050-curl-7.76.1-CVE-2026-8924.patch
 
 # digest: flush state on origin or credential change (CVE-2026-11856)
 Patch051: 0051-curl-7.76.1-CVE-2026-11856.patch
+
+# tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
+# https://github.com/curl/curl/commit/7541ae569d82fb308a5e2d94
+Patch052: 0052-curl-7.76.1-CVE-2026-8932.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -380,6 +384,7 @@ be installed.
 %patch -P 49 -p1
 %patch -P 50 -p1
 %patch -P 51 -p1
+%patch -P 52 -p1
 
 # Fedora patches
 %patch -P 101 -p1
@@ -620,6 +625,9 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Thu Sep 24 2026 Marian Koncek <mkoncek@redhat.com> - 7.76.1-40.el9_8.9
+- fix incomplete mTLS config in connection reuse (CVE-2026-8932)
+
 * Thu Sep 03 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.8
 - fix cookie injection via trailing dot super cookies (CVE-2026-8924)
 - fix digest auth state leak on origin or credential change (CVE-2026-11856)
