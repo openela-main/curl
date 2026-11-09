@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 4%{?dist}.7
+Release: 4%{?dist}.8
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -72,6 +72,9 @@ Patch020: 0020-curl-8.12.1-CVE-2026-6253.patch
 
 # http: clear HTTP credentials on redirect (CVE-2026-6429)
 Patch021: 0021-curl-8.12.1-CVE-2026-6429.patch
+
+# multi: adjust the cleanup order in multi_done (CVE-2026-92392)
+Patch022: 0022-curl-8.12.1-CVE-2026-92392.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -463,6 +466,9 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Thu Oct 16 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.el10_2.8
+- fix HTTP/2 upload use-after-free in multi_done (CVE-2026-92392)
+
 * Wed Sep 23 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.el10_2.7
 - fix http2 stream dependency tracking security issue (CVE-2026-10536)
 - fix negotiate state check on connection reuse (CVE-2026-5545)
