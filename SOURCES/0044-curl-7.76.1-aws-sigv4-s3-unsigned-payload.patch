@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Casey Bodley <cbodley@redhat.com>
+Date: Wed, 1 Mar 2023 00:00:00 +0000
+Subject: [PATCH] aws_sigv4: fall back to UNSIGNED-PAYLOAD for sign_as_s3
+
+Backport of upstream PR #9995 to curl 7.76.1.
+
+AWS S3 requires special handling for request signing:
+- Adds x-amz-content-sha256 header to all S3 requests
+- Uses UNSIGNED-PAYLOAD for requests with unknown payload size
+- Calculates real checksums for known payloads (GET, HEAD, POST with
+  postfields)
+
+This fixes S3 signing issues where curl would fail to properly sign
+requests when using CURLAUTH_AWS_SIGV4 with aws:s3.
+
+Original commits by Casey Bodley:
+- aws_sigv4: add service detection for sign_as_s3
+- aws_sigv4: add required x-amz-content-sha256 header
+- aws_sigv4: use UNSIGNED-PAYLOAD for s3 requests with unknown payload
+
+Signed-off-by: Casey Bodley <cbodley@redhat.com>
+---
+ lib/http_aws_sigv4.c | 133 ++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 119 insertions(+), 14 deletions(-)
+
+--- a/lib/http_aws_sigv4.c
++++ b/lib/http_aws_sigv4.c
+@@ -66,6 +66,60 @@ static void sha256_to_hex(char *dst, un
+   }
+ }
+
++/* S3's UNSIGNED-PAYLOAD magic string for requests with unknown payload */
++#define S3_UNSIGNED_PAYLOAD "UNSIGNED-PAYLOAD"
++
++/*
++ * calc_s3_payload_hash: Calculate payload hash for S3 requests
++ *
++ * For S3 (AWS), we need to handle payload hashing specially:
++ * - GET/HEAD requests: hash of empty payload
++ * - POST with known data: hash of the post data
++ * - Other requests (uploads with unknown size): UNSIGNED-PAYLOAD
++ *
++ * This also formats the required x-amz-content-sha256 header.
++ */
++static CURLcode calc_s3_payload_hash(struct Curl_easy *data,
++                                     Curl_HttpReq httpreq,
++                                     const char *post_data,
++                                     unsigned char *sha_hash,
++                                     char *sha_hex,
++                                     size_t sha_hex_len,
++                                     char **content_sha256_hdr)
++{
++  bool empty_method = (httpreq == HTTPREQ_GET || httpreq == HTTPREQ_HEAD);
++  bool empty_payload = (empty_method || data->set.filesize == 0);
++  bool post_payload = (httpreq == HTTPREQ_POST && data->set.postfields);
++  const char *payload_hash;
++
++  if(empty_payload || post_payload) {
++    /* Calculate a real hash when we know the request payload */
++    size_t post_data_len = 0;
++    if(post_data) {
++      if(data->set.postfieldsize < 0)
++        post_data_len = strlen(post_data);
++      else
++        post_data_len = (size_t)data->set.postfieldsize;
++    }
++    /* Curl_sha256it is void in curl 7.76.1 */
++    Curl_sha256it(sha_hash, (const unsigned char *)post_data,
++                  post_data_len);
++    sha256_to_hex(sha_hex, sha_hash, sha_hex_len);
++    payload_hash = sha_hex;
++  }
++  else {
++    /* Fall back to S3's UNSIGNED-PAYLOAD for unknown payloads */
++    payload_hash = S3_UNSIGNED_PAYLOAD;
++    curl_msnprintf(sha_hex, sha_hex_len, "%s", S3_UNSIGNED_PAYLOAD);
++  }
++
++  /* Format the required x-amz-content-sha256 header */
++  *content_sha256_hdr = curl_maprintf("x-amz-content-sha256:%s",
++                                      payload_hash);
++
++  return *content_sha256_hdr ? CURLE_OK : CURLE_OUT_OF_MEMORY;
++}
++
+ CURLcode Curl_output_aws_sigv4(struct Curl_easy *data, bool proxy)
+ {
+   CURLcode ret = CURLE_OUT_OF_MEMORY;
+@@ -79,6 +133,8 @@ CURLcode Curl_output_aws_sigv4(struct C
+   char *provider1_mid = NULL;
+   char *region = NULL;
+   char *service = NULL;
++  bool sign_as_s3 = false;
++  char *content_sha256_hdr = NULL;
+   const char *hostname = conn->host.name;
+ #ifdef DEBUGBUILD
+   char *force_timestamp;
+@@ -230,6 +286,13 @@ CURLcode Curl_output_aws_sigv4(struct C
+     }
+   }
+
++  /* Get HTTP method early - needed for S3 payload hash calculation */
++  Curl_http_method(data, conn, &method, &httpreq);
++
++  /* AWS S3 requires special handling with x-amz-content-sha256 header */
++  sign_as_s3 = (Curl_strcasecompare(provider0_low, "aws") &&
++                Curl_strcasecompare(service, "s3"));
++
+ #ifdef DEBUGBUILD
+   force_timestamp = getenv("CURL_FORCETIME");
+   if(force_timestamp)
+@@ -249,6 +312,20 @@ CURLcode Curl_output_aws_sigv4(struct C
+   memcpy(date, timestamp, sizeof(date));
+   date[sizeof(date) - 1] = 0;
+
++  /* Calculate payload hash - special handling for S3 */
++  if(sign_as_s3) {
++    ret = calc_s3_payload_hash(data, httpreq, post_data, sha_hash, sha_hex,
++                               sizeof(sha_hex), &content_sha256_hdr);
++    if(ret != CURLE_OK)
++      goto fail;
++  }
++  else {
++    /* Non-S3: just hash the post data */
++    Curl_sha256it(sha_hash,
++                  (const unsigned char *) post_data, strlen(post_data));
++    sha256_to_hex(sha_hex, sha_hash, sizeof(sha_hex));
++  }
++
+   if(content_type) {
+     content_type = strchr(content_type, ':');
+     if(!content_type) {
+@@ -260,33 +337,53 @@ CURLcode Curl_output_aws_sigv4(struct C
+     while(*content_type == ' ' || *content_type == '\t')
+       ++content_type;
+
+-    canonical_headers = curl_maprintf("content-type:%s\n"
+-                                      "host:%s\n"
+-                                      "x-%s-date:%s\n",
+-                                      content_type,
+-                                      hostname,
+-                                      provider1_low, timestamp);
+-    signed_headers = curl_maprintf("content-type;host;x-%s-date",
+-                                   provider1_low);
++    if(sign_as_s3) {
++      canonical_headers = curl_maprintf("content-type:%s\n"
++                                        "host:%s\n"
++                                        "%s\n"
++                                        "x-%s-date:%s\n",
++                                        content_type,
++                                        hostname,
++                                        content_sha256_hdr,
++                                        provider1_low, timestamp);
++      signed_headers = curl_maprintf("content-type;host;x-amz-content-sha256;"
++                                     "x-%s-date", provider1_low);
++    }
++    else {
++      canonical_headers = curl_maprintf("content-type:%s\n"
++                                        "host:%s\n"
++                                        "x-%s-date:%s\n",
++                                        content_type,
++                                        hostname,
++                                        provider1_low, timestamp);
++      signed_headers = curl_maprintf("content-type;host;x-%s-date",
++                                     provider1_low);
++    }
+   }
+   else {
+-    canonical_headers = curl_maprintf("host:%s\n"
+-                                      "x-%s-date:%s\n",
+-                                      hostname,
+-                                      provider1_low, timestamp);
+-    signed_headers = curl_maprintf("host;x-%s-date", provider1_low);
++    if(sign_as_s3) {
++      canonical_headers = curl_maprintf("host:%s\n"
++                                        "%s\n"
++                                        "x-%s-date:%s\n",
++                                        hostname,
++                                        content_sha256_hdr,
++                                        provider1_low, timestamp);
++      signed_headers = curl_maprintf("host;x-amz-content-sha256;x-%s-date",
++                                     provider1_low);
++    }
++    else {
++      canonical_headers = curl_maprintf("host:%s\n"
++                                        "x-%s-date:%s\n",
++                                        hostname,
++                                        provider1_low, timestamp);
++      signed_headers = curl_maprintf("host;x-%s-date", provider1_low);
++    }
+   }
+
+   if(!canonical_headers || !signed_headers) {
+     goto fail;
+   }
+
+-  Curl_sha256it(sha_hash,
+-                (const unsigned char *) post_data, strlen(post_data));
+-  sha256_to_hex(sha_hex, sha_hash, sizeof(sha_hex));
+-
+-  Curl_http_method(data, conn, &method, &httpreq);
+-
+   canonical_request =
+     curl_maprintf("%s\n" /* HTTPRequestMethod */
+                   "%s\n" /* CanonicalURI */
+@@ -388,6 +485,7 @@ fail:
+   free(credential_scope);
+   free(str_to_sign);
+   free(secret);
++  free(content_sha256_hdr);
+   return ret;
+ }
+

@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 40%{?dist}.9
+Release: 43%{?dist}
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -131,33 +131,8 @@ Patch042: 0042-curl-7.76.1-respect-system-crypto-policy.patch
 # http: fix crash in rate-limited upload
 Patch043: 0043-curl-7.76.1-http-fix-crash-in-rate-limited-upload.patch
 
-# vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
-Patch044: 0044-curl-7.76.1-CVE-2026-9547.patch
-
-# url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
-Patch045: 0045-curl-7.76.1-CVE-2026-8286.patch
-
-# url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
-Patch046: 0007-curl-7.76.1-CVE-2026-1965.patch
-
-# http: only send bearer if auth is allowed (CVE-2026-3783)
-Patch047: 0008-curl-7.76.1-CVE-2026-3783.patch
-
-# url: detect proxy changes read from environment (CVE-2026-8927)
-Patch048: 0048-curl-7.76.1-CVE-2026-8927.patch
-
-# add sasl service name to connection reuse checks (CVE-2026-8458)
-Patch049: 0049-curl-7.76.1-CVE-2026-8458.patch
-
-# cookie: trim trailing dots when checking PSL (CVE-2026-8924)
-Patch050: 0050-curl-7.76.1-CVE-2026-8924.patch
-
-# digest: flush state on origin or credential change (CVE-2026-11856)
-Patch051: 0051-curl-7.76.1-CVE-2026-11856.patch
-
-# tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
-# https://github.com/curl/curl/commit/7541ae569d82fb308a5e2d94
-Patch052: 0052-curl-7.76.1-CVE-2026-8932.patch
+# aws_sigv4: fall back to UNSIGNED-PAYLOAD for sign_as_s3
+Patch044: 0044-curl-7.76.1-aws-sigv4-s3-unsigned-payload.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -377,14 +352,6 @@ be installed.
 %patch -P 42 -p1
 %patch -P 43 -p1
 %patch -P 44 -p1
-%patch -P 45 -p1
-%patch -P 46 -p1
-%patch -P 47 -p1
-%patch -P 48 -p1
-%patch -P 49 -p1
-%patch -P 50 -p1
-%patch -P 51 -p1
-%patch -P 52 -p1
 
 # Fedora patches
 %patch -P 101 -p1
@@ -394,7 +361,7 @@ be installed.
 # disable test 1112 (#565305), test 1455 (occasionally fails with 'bind failed
 # with errno 98: Address already in use' in Koji environment), and test 1801
 # <https://github.com/bagder/curl/commit/21e82bd6#commitcomment-12226582>
-printf "1112\n1455\n1592\n1701\n1801\n" >> tests/data/DISABLED
+printf "1112\n1455\n1592\n1801\n" >> tests/data/DISABLED
 
 # disable test 1319 on ppc64 (server times out)
 %ifarch ppc64
@@ -416,19 +383,10 @@ printf "702\n703\n716\n" >> tests/data/DISABLED
 printf "2034\n2037\n2041\n" >> tests/data/DISABLED
 %endif
 
-# temporarily disable tests 3000 and 3001 on i686 (flaky stunnel startup)
-%ifarch i686
-printf "3000\n3001\n" >> tests/data/DISABLED
-%endif
-
-# temporarily disable test 1206 on x86_64 (flaky FTP PORT timeout under valgrind)
-%ifarch x86_64
-echo "1206" >> tests/data/DISABLED
-%endif
-
-# disable flaky stunnel/proxy tests on x86_64 (port collision race condition)
-%ifarch x86_64
-printf "1561\n1562\n1630\n1631\n1632\n1904\n2050\n2055\n" >> tests/data/DISABLED
+# disable proxy-related tests on ppc64le that fail in Konflux hermetic builds
+# due to test server race conditions (Address already in use, Connection refused)
+%ifarch ppc64le
+printf "1630\n1631\n1632\n1904\n2050\n2055\n" >> tests/data/DISABLED
 %endif
 
 # adapt test 323 for updated OpenSSL
@@ -625,33 +583,14 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Thu Sep 24 2026 Marian Koncek <mkoncek@redhat.com> - 7.76.1-40.el9_8.9
-- fix incomplete mTLS config in connection reuse (CVE-2026-8932)
+* Thu May 07 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-43
+- tests: disable flaky proxy tests on ppc64le in Konflux builds (RHEL-173187)
 
-* Thu Sep 03 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.8
-- fix cookie injection via trailing dot super cookies (CVE-2026-8924)
-- fix digest auth state leak on origin or credential change (CVE-2026-11856)
+* Tue Mar 31 2026 Veronika Kabatova <vkabatov@redhat.com> - 7.76.1-42
+- Rebuild to fix missing binaries due to buildsystem oversight
 
-* Wed Sep 02 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.7
-- add sasl service name to connection reuse checks (CVE-2026-8458)
-
-* Tue Aug 25 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.6
-- detect proxy changes read from environment (CVE-2026-8927)
-
-* Thu Jul 23 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.5
-- fix missing %%patch macros for Patch46 and Patch47
-
-* Wed Jul 22 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.el9_8.4
-- fix HTTP Negotiate connection reuse auth bypass (CVE-2026-1965)
-- fix OAuth2 bearer token leak via redirect and netrc (CVE-2026-3783)
-- tests: disable flaky test 1206 on x86_64 (FTP PORT timeout under valgrind)
-
-* Tue Jul 14 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.3
-- tests: disable flaky tests 3000, 3001 on i686 (stunnel startup race)
-
-* Mon Jul 13 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40.1
-- fix SSH host key mismatch on type difference (CVE-2026-9547)
-- fix TLS/STARTTLS connection reuse vulnerability (CVE-2026-8286)
+* Mon Mar 23 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-41
+- aws_sigv4: fall back to UNSIGNED-PAYLOAD for sign_as_s3
 
 * Wed Jan 21 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-40
 - openssl: fix libssh compatibility by preserving original SSL_CTX behavior (RHEL-134721)
