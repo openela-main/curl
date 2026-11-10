@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 4%{?dist}.8
+Release: 6%{?dist}
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -16,65 +16,8 @@ Patch001: 0001-curl-8.12.1-CVE-2025-9086.patch
 # openssl: respect system crypto policy for TLS max version
 Patch002: 0002-curl-8.12.1-respect-system-crypto-policy.patch
 
-# openssl: toggling CURLSSLOPT_NO_PARTIALCHAIN makes a different CA cache (CVE-2025-14819)
-Patch003: 0003-curl-8.12.1-CVE-2025-14819.patch
-
-# vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
-Patch004: 0004-curl-8.12.1-CVE-2026-9547.patch
-
-# tool_operate: fix schemeless URL handling with --proto-default (CVE-2026-12064)
-Patch005: 0005-curl-8.12.1-CVE-2026-12064.patch
-
-# url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
-Patch006: 0006-curl-8.12.1-CVE-2026-8286.patch
-
-# url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
-Patch007: 0007-curl-8.12.1-CVE-2026-1965.patch
-
-# http: only send bearer if auth is allowed (CVE-2026-3783)
-Patch008: 0008-curl-8.12.1-CVE-2026-3783.patch
-
-# proxy-auth: check proxy credentials on connection reuse (CVE-2026-3784)
-Patch009: 0009-curl-8.12.1-CVE-2026-3784.patch
-
-# url: detect proxy changes read from environment (CVE-2026-8927)
-Patch010: 0010-curl-8.12.1-CVE-2026-8927.patch
-
-# Fix SASL service name connection reuse bypass (CVE-2026-8458)
-Patch011: 0011-curl-8.12.1-CVE-2026-8458.patch
-
-# tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
-Patch012: 0012-curl-8.12.1-CVE-2026-8932.patch
-
-# setopt: clear proxy auth properly on NULL (CVE-2026-9079)
-Patch013: 0013-curl-8.12.1-CVE-2026-9079.patch
-
-# cookie: trim trailing dots when checking PSL (CVE-2026-8924)
-Patch014: 0014-curl-8.12.1-CVE-2026-8924.patch
-
-# digest: flush state on origin or credential change (CVE-2026-11856)
-Patch015: 0015-curl-8.12.1-CVE-2026-11856.patch
-
-# netrc: reject password for non-matching login (CVE-2026-8926)
-Patch016: 0016-curl-8.12.1-CVE-2026-8926.patch
-
-# http2: remove stream dependency tracking (CVE-2026-10536)
-Patch017: 0017-curl-8.12.1-CVE-2026-10536.patch
-
-# url: check negotiate state on connection reuse (CVE-2026-5545)
-Patch018: 0018-curl-8.12.1-CVE-2026-5545.patch
-
-# setopt: clear proxy auth on proxy change (CVE-2026-7168)
-Patch019: 0019-curl-8.12.1-CVE-2026-7168.patch
-
-# http: clear credentials on redirect (CVE-2026-6253)
-Patch020: 0020-curl-8.12.1-CVE-2026-6253.patch
-
-# http: clear HTTP credentials on redirect (CVE-2026-6429)
-Patch021: 0021-curl-8.12.1-CVE-2026-6429.patch
-
-# multi: adjust the cleanup order in multi_done (CVE-2026-92392)
-Patch022: 0022-curl-8.12.1-CVE-2026-92392.patch
+# openssl: fix channel binding for ML-DSA and PQC certificates
+Patch003: 0003-curl-8.12.1-ml-dsa-channel-binding.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -273,9 +216,6 @@ sed -e 's|NUM_THREADS 1000$|NUM_THREADS 256|' \
     -i tests/libtest/lib3026.c
 %endif
 
-# disable test 1701 (nghttpx rejects h2c upgrade with POST after CVE-2026-27135)
-echo "1701" >> tests/data/DISABLED
-
 # adapt test 323 for updated OpenSSL
 sed -e 's|^35$|35,52|' -i tests/data/test323
 
@@ -314,7 +254,7 @@ export common_configure_opts="          \
     --with-gssapi                       \
     --with-libidn2                      \
     --with-nghttp2                      \
-    --with-ssl --with-ca-bundle=%{_sysconfdir}/pki/tls/certs/ca-bundle.crt \
+    --with-ssl --with-ca-bundle=%{_sysconfdir}/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
     --with-zsh-functions-dir"
 
 %global _configure ../configure
@@ -399,9 +339,7 @@ for size in minimal full; do (
     export LD_LIBRARY_PATH="${PWD}/lib/.libs"
 
     cd tests
-    # Skip tests 973 and 998 - they test old (vulnerable) auth redirect behavior
-    # that was intentionally changed by CVE-2026-6253 and CVE-2026-6429 fixes
-    perl -I../../tests ../../tests/runtests.pl -a -p -v '!flaky' '!973' '!998'
+    perl -I../../tests ../../tests/runtests.pl -a -p -v '!flaky'
 )
 done
 
@@ -466,42 +404,11 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
-* Thu Oct 16 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.el10_2.8
-- fix HTTP/2 upload use-after-free in multi_done (CVE-2026-92392)
+* Mon May 18 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-6
+- use tls-ca-bundle.pem instead of ca-bundle.crt (RHEL-56966)
 
-* Wed Sep 23 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.el10_2.7
-- fix http2 stream dependency tracking security issue (CVE-2026-10536)
-- fix negotiate state check on connection reuse (CVE-2026-5545)
-- fix proxy auth not cleared on proxy change (CVE-2026-7168)
-- fix credentials not cleared on redirect (CVE-2026-6253)
-- fix HTTP credentials leak on cross-origin redirect (CVE-2026-6429)
-
-* Thu Sep 03 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.6
-- fix cookie injection via trailing dot super cookies (CVE-2026-8924)
-- fix digest auth state leak on origin or credential change (CVE-2026-11856)
-- fix netrc password lookup for non-matching login (CVE-2026-8926)
-
-* Mon Aug 31 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.5
-- fix proxy auth not cleared properly on NULL (CVE-2026-9079)
-- fix incomplete mTLS config in connection reuse and session cache
-  (CVE-2026-8932)
-- fix SASL service name connection reuse bypass (CVE-2026-8458)
-
-* Wed Jul 29 2026 RHEL Packaging Agent <redhat-ymir-agent@redhat.com> - 8.12.1-4.4
-- fix proxy environment variable change detection (CVE-2026-8927)
-
-* Wed Jul 22 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.el10_2.3
-- fix HTTP Negotiate connection reuse auth bypass (CVE-2026-1965)
-- fix OAuth2 bearer token leak via redirect and netrc (CVE-2026-3783)
-- fix proxy connection reuse with wrong credentials (CVE-2026-3784)
-
-* Mon Jul 13 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.2
-- fix SSH host key mismatch on type difference (CVE-2026-9547)
-- fix schemeless URL handling with --proto-default (CVE-2026-12064)
-- fix TLS/STARTTLS connection reuse vulnerability (CVE-2026-8286)
-
-* Mon Apr 20 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4.1
-- openssl: fix CA cache reuse with CURLSSLOPT_NO_PARTIALCHAIN (CVE-2025-14819)
+* Mon Dec 15 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-5
+- openssl: fix channel binding for ML-DSA and PQC certificates (RHEL-150993)
 
 * Mon Nov 17 2025 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-4
 - openssl: respect system crypto policy for TLS max version (RHEL-128916)

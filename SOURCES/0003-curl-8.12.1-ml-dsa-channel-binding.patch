@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Eissing <stefan@eissing.org>
+Date: Fri, 20 Mar 2026 10:06:19 +0100
+Subject: [PATCH] openssl: fix channel binding for ML-DSA and PQC certificates
+
+For post-quantum algorithms like ML-DSA, there may be no 'digest'
+algorithm available when certificates are signed. For such certificates,
+no "channel binding" is defined per RFC 5929, and it is acceptable to
+not add to it.
+
+This fixes OCSP validation failures with ML-DSA certificates where
+OBJ_find_sigid_algs() returns NID_undef.
+
+Upstream PR: https://github.com/curl/curl/pull/20734
+Resolves: RHEL-150993
+---
+--- a/lib/vtls/openssl.c	2025-02-13 07:15:00.000000000 +0000
++++ b/lib/vtls/openssl.c	2026-04-14 07:47:37.605043003 +0000
+@@ -5260,8 +5260,14 @@
+ #if OPENSSL_VERSION_NUMBER > 0x10100000L
+   X509 *cert;
+   int algo_nid;
+-  const EVP_MD *algo_type;
+-  const char *algo_name;
++#ifdef HAVE_OPENSSL3
++  int pknid, secbits;
++  uint32_t flags;
++  EVP_PKEY *pkey = NULL;
++  bool no_digest_acceptable = FALSE;
++#endif
++  const EVP_MD *algo_type = NULL;
++  const char *algo_name = NULL;
+   unsigned int length;
+   unsigned char buf[EVP_MAX_MD_SIZE];
+ 
+@@ -5295,9 +5301,47 @@
+     return CURLE_OK;
+   }
+ 
++#ifdef HAVE_OPENSSL3
++  /* OpenSSL 3+ provides X509_get_signature_info() to handle algorithms
++   * from providers (e.g., PQC algorithms) that don't have NIDs.
++   * Try this first, fallback to NID-based lookup for older OpenSSL. */
++  pkey = X509_get0_pubkey(cert);
++
++  if(!X509_get_signature_info(cert, &algo_nid, &pknid, &secbits, &flags)) {
++    failf(data, "certificate signature algorithm not recognized");
++    X509_free(cert);
++    return CURLE_SSL_INVALIDCERTSTATUS;
++  }
++
++  if(algo_nid != NID_undef) {
++    /* https://datatracker.ietf.org/doc/html/rfc5929#section-4.1 */
++    if(algo_nid == NID_md5 || algo_nid == NID_sha1) {
++      algo_type = EVP_sha256();
++    }
++    else
++      algo_type = EVP_get_digestbynid(algo_nid);
++  }
++  else if(pkey && !EVP_PKEY_is_a(pkey, OBJ_nid2sn(pknid))) {
++    /* The cert's pkey is different from the algorithm used to sign
++     * the certificate. Since the reported algo_nid is undefined, there
++     * is no digest algorithm available here. This happens with PQC
++     * algorithms like ML-DSA and is acceptable per RFC 5929. */
++    no_digest_acceptable = TRUE;
++  }
++
++  if(!algo_type && no_digest_acceptable) {
++    infof(data, "certificate exposes no signing digest algorithm, "
++          "nothing to add to channel binding");
++    X509_free(cert);
++    return CURLE_OK;
++  }
++
++#else /* !HAVE_OPENSSL3 */
++  /* Older OpenSSL versions: use NID-based lookup */
+   if(!OBJ_find_sigid_algs(X509_get_signature_nid(cert), &algo_nid, NULL)) {
+     failf(data,
+           "Unable to find digest NID for certificate signature algorithm");
++    X509_free(cert);
+     return CURLE_SSL_INVALIDCERTSTATUS;
+   }
+ 
+@@ -5311,22 +5355,39 @@
+       algo_name = OBJ_nid2sn(algo_nid);
+       failf(data, "Could not find digest algorithm %s (NID %d)",
+             algo_name ? algo_name : "(null)", algo_nid);
++      X509_free(cert);
+       return CURLE_SSL_INVALIDCERTSTATUS;
+     }
+   }
++#endif /* HAVE_OPENSSL3 */
++
++  if(!algo_type) {
++    /* unacceptable: something is wrong */
++    algo_name = OBJ_nid2sn(algo_nid);
++    failf(data, "Unable to find digest algorithm %s (NID %d) "
++          "for channel binding", algo_name ? algo_name : "(null)", algo_nid);
++    X509_free(cert);
++    return CURLE_SSL_INVALIDCERTSTATUS;
++  }
+ 
+   if(!X509_digest(cert, algo_type, buf, &length)) {
+     failf(data, "X509_digest() failed");
++    X509_free(cert);
+     return CURLE_SSL_INVALIDCERTSTATUS;
+   }
+ 
+   /* Append "tls-server-end-point:" */
+-  if(Curl_dyn_addn(binding, prefix, sizeof(prefix) - 1) != CURLE_OK)
++  if(Curl_dyn_addn(binding, prefix, sizeof(prefix) - 1) != CURLE_OK) {
++    X509_free(cert);
+     return CURLE_OUT_OF_MEMORY;
++  }
+   /* Append digest */
+-  if(Curl_dyn_addn(binding, buf, length))
++  if(Curl_dyn_addn(binding, buf, length)) {
++    X509_free(cert);
+     return CURLE_OUT_OF_MEMORY;
++  }
+ 
++  X509_free(cert);
+   return CURLE_OK;
+ #else
+   /* No X509_get_signature_nid support */
