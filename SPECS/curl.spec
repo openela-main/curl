@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 8.12.1
-Release: 6%{?dist}
+Release: 9%{?dist}
 License: curl
 Source0: https://curl.se/download/%{name}-%{version}.tar.xz
 Source1: https://curl.se/download/%{name}-%{version}.tar.xz.asc
@@ -27,6 +27,69 @@ Patch102: 0102-curl-8.12.1-lt-curl-mismatch.patch
 
 # test616: disable valgrind
 Patch105: 0105-curl-8.11.1-test616.patch
+
+# http: clear the stale credentials when personal data changes (CVE-2025-14819)
+Patch0004: 0003-curl-8.12.1-CVE-2025-14819.patch
+
+# vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
+Patch0005: 0004-curl-8.12.1-CVE-2026-9547.patch
+
+# tool_operate: fix schemeless URL handling with --proto-default (CVE-2026-12064)
+Patch0006: 0005-curl-8.12.1-CVE-2026-12064.patch
+
+# url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
+Patch0007: 0006-curl-8.12.1-CVE-2026-8286.patch
+
+# url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
+Patch0008: 0007-curl-8.12.1-CVE-2026-1965.patch
+
+# http: only send bearer if auth is allowed (CVE-2026-3783)
+Patch0009: 0008-curl-8.12.1-CVE-2026-3783.patch
+
+# proxy-auth: check proxy credentials on connection reuse (CVE-2026-3784)
+Patch0010: 0009-curl-8.12.1-CVE-2026-3784.patch
+
+# url: detect proxy changes read from environment (CVE-2026-8927)
+Patch0011: 0010-curl-8.12.1-CVE-2026-8927.patch
+
+# url: check service name in connection reuse (CVE-2026-8458)
+Patch0012: 0011-curl-8.12.1-CVE-2026-8458.patch
+
+# tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
+Patch0013: 0012-curl-8.12.1-CVE-2026-8932.patch
+
+# setopt: clear proxy auth properly on NULL (CVE-2026-9079)
+Patch0014: 0013-curl-8.12.1-CVE-2026-9079.patch
+
+# cookie: trim trailing dots when checking PSL (CVE-2026-8924)
+Patch0015: 0014-curl-8.12.1-CVE-2026-8924.patch
+
+# digest: flush state on origin or credential change (CVE-2026-11856)
+Patch0016: 0015-curl-8.12.1-CVE-2026-11856.patch
+
+# netrc: reject password for non-matching login (CVE-2026-8926)
+Patch0017: 0016-curl-8.12.1-CVE-2026-8926.patch
+
+# http2: remove stream dependency tracking (CVE-2026-10536)
+Patch0018: 0017-curl-8.12.1-CVE-2026-10536.patch
+
+# url: check negotiate state on connection reuse (CVE-2026-5545)
+Patch0019: 0018-curl-8.12.1-CVE-2026-5545.patch
+
+# setopt: clear proxy auth properties when switching (CVE-2026-7168)
+Patch0020: 0019-curl-8.12.1-CVE-2026-7168.patch
+
+# http: clear proxy credentials on port or scheme change (CVE-2026-6253)
+Patch0021: 0020-curl-8.12.1-CVE-2026-6253.patch
+
+# http: clear credentials better on redirect (CVE-2026-6429)
+Patch0022: 0021-curl-8.12.1-CVE-2026-6429.patch
+
+# multi: adjust the cleanup order in multi_done (CVE-2026-92392)
+Patch0023: 0022-curl-8.12.1-CVE-2026-92392.patch
+
+# ldap: call ldap_init() before setting the options (CVE-2025-14017)
+Patch0024: 0023-curl-8.12.1-CVE-2025-14017.patch
 
 Provides: curl-full = %{version}-%{release}
 # do not fail when trying to install curl-minimal after drop
@@ -332,6 +395,13 @@ export srcdir=../../tests
 unset DEBUGINFOD_URLS
 
 # run the upstream test-suite for both curl-minimal and curl-full
+
+# disable tests that verify old (vulnerable) auth redirect behavior fixed by CVEs
+# 973: HTTP with auth redirected to FTP w/o auth
+# 998: HTTP with auth in URL redirected to another host
+# 1701: HTTP/2 POST with Upgrade (nghttpx rejects h2c upgrade after CVE fix)
+printf "973\n998\n1701\n" >> tests/data/DISABLED
+
 for size in minimal full; do (
     cd build-${size}
 
@@ -404,6 +474,33 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Mon Oct 26 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-9
+- ldap: call ldap_init() before setting the options (CVE-2025-14017)
+
+* Thu Oct 15 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-8
+- multi: adjust the cleanup order in multi_done (CVE-2026-92392)
+
+* Thu Oct 08 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-7
+- http: clear the stale credentials when personal data changes (CVE-2025-14819)
+- vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
+- tool_operate: fix schemeless URL handling with --proto-default (CVE-2026-12064)
+- url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
+- url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
+- http: only send bearer if auth is allowed (CVE-2026-3783)
+- proxy-auth: check proxy credentials on connection reuse (CVE-2026-3784)
+- url: detect proxy changes read from environment (CVE-2026-8927)
+- url: check service name in connection reuse (CVE-2026-8458)
+- tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
+- setopt: clear proxy auth properly on NULL (CVE-2026-9079)
+- cookie: trim trailing dots when checking PSL (CVE-2026-8924)
+- digest: flush state on origin or credential change (CVE-2026-11856)
+- netrc: reject password for non-matching login (CVE-2026-8926)
+- http2: remove stream dependency tracking (CVE-2026-10536)
+- url: check negotiate state on connection reuse (CVE-2026-5545)
+- setopt: clear proxy auth properties when switching (CVE-2026-7168)
+- http: clear proxy credentials on port or scheme change (CVE-2026-6253)
+- http: clear credentials better on redirect (CVE-2026-6429)
+
 * Mon May 18 2026 Jacek Migacz <jmigacz@redhat.com> - 8.12.1-6
 - use tls-ca-bundle.pem instead of ca-bundle.crt (RHEL-56966)
 
