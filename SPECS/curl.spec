@@ -1,7 +1,7 @@
 Summary: A utility for getting files from remote servers (FTP, HTTP, and others)
 Name: curl
 Version: 7.76.1
-Release: 43%{?dist}
+Release: 44%{?dist}.1
 License: MIT
 Source: https://curl.se/download/%{name}-%{version}.tar.xz
 
@@ -133,6 +133,48 @@ Patch043: 0043-curl-7.76.1-http-fix-crash-in-rate-limited-upload.patch
 
 # aws_sigv4: fall back to UNSIGNED-PAYLOAD for sign_as_s3
 Patch044: 0044-curl-7.76.1-aws-sigv4-s3-unsigned-payload.patch
+
+# vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
+Patch045: 0045-curl-7.76.1-CVE-2026-9547.patch
+
+# url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
+Patch046: 0046-curl-7.76.1-CVE-2026-8286.patch
+
+# url: detect proxy changes read from environment (CVE-2026-8927)
+Patch047: 0047-curl-7.76.1-CVE-2026-8927.patch
+
+# url: check service name in connection reuse (CVE-2026-8458)
+Patch048: 0048-curl-7.76.1-CVE-2026-8458.patch
+
+# cookie: trim trailing dots when checking PSL (CVE-2026-8924)
+Patch049: 0049-curl-7.76.1-CVE-2026-8924.patch
+
+# digest: flush state on origin or credential change (CVE-2026-11856)
+Patch050: 0050-curl-7.76.1-CVE-2026-11856.patch
+
+# tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
+Patch051: 0051-curl-7.76.1-CVE-2026-8932.patch
+
+# url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
+Patch052: 0052-curl-7.76.1-CVE-2026-1965.patch
+
+# http: only send bearer if auth is allowed (CVE-2026-3783)
+Patch053: 0053-curl-7.76.1-CVE-2026-3783.patch
+
+# url: check negotiate state on connection reuse (CVE-2026-5545)
+Patch054: 0054-curl-7.76.1-CVE-2026-5545.patch
+
+# setopt: clear proxy auth properties when switching (CVE-2026-7168)
+Patch055: 0055-curl-7.76.1-CVE-2026-7168.patch
+
+# http: clear proxy credentials on port or scheme change (CVE-2026-6253)
+Patch056: 0056-curl-7.76.1-CVE-2026-6253.patch
+
+# http: clear credentials better on redirect (CVE-2026-6429)
+Patch057: 0057-curl-7.76.1-CVE-2026-6429.patch
+
+# proxy-auth: check proxy credentials on connection reuse (CVE-2026-3784)
+Patch058: 0058-curl-7.76.1-CVE-2026-3784.patch
 
 # patch making libcurl multilib ready
 Patch101: 0101-curl-7.32.0-multilib.patch
@@ -352,6 +394,20 @@ be installed.
 %patch -P 42 -p1
 %patch -P 43 -p1
 %patch -P 44 -p1
+%patch -P 45 -p1
+%patch -P 46 -p1
+%patch -P 47 -p1
+%patch -P 48 -p1
+%patch -P 49 -p1
+%patch -P 50 -p1
+%patch -P 51 -p1
+%patch -P 52 -p1
+%patch -P 53 -p1
+%patch -P 54 -p1
+%patch -P 55 -p1
+%patch -P 56 -p1
+%patch -P 57 -p1
+%patch -P 58 -p1
 
 # Fedora patches
 %patch -P 101 -p1
@@ -498,6 +554,11 @@ export srcdir=../../tests
 unset DEBUGINFOD_URLS
 
 # run the upstream test-suite for both curl-minimal and curl-full
+
+# disable test 1701 (nghttpx rejects h2c upgrade with POST after CVE fix)
+# disable test 973 (tests old vulnerable auth redirect behavior)
+printf "1701\n973\n" >> tests/data/DISABLED
+
 for size in minimal full; do (
     cd build-${size}
 
@@ -583,6 +644,24 @@ rm -f ${RPM_BUILD_ROOT}%{_libdir}/libcurl.la
 %{_libdir}/libcurl.so.4.[0-9].[0-9].minimal
 
 %changelog
+* Tue Nov 03 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-44.el9_9.1
+- url: check negotiate state on connection reuse (CVE-2026-5545)
+- setopt: clear proxy auth properties when switching (CVE-2026-7168)
+- http: clear proxy credentials on port or scheme change (CVE-2026-6253)
+- http: clear credentials better on redirect (CVE-2026-6429)
+- proxy-auth: check proxy credentials on connection reuse (CVE-2026-3784)
+
+* Fri Oct 09 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-44
+- vssh: fix SSH host key mismatch on type difference (CVE-2026-9547)
+- url: reject TLS-to-cleartext STARTTLS connection reuse (CVE-2026-8286)
+- url: detect proxy changes read from environment (CVE-2026-8927)
+- url: check service name in connection reuse (CVE-2026-8458)
+- cookie: trim trailing dots when checking PSL (CVE-2026-8924)
+- digest: flush state on origin or credential change (CVE-2026-11856)
+- tls: fix incomplete mTLS config in conn reuse and session cache (CVE-2026-8932)
+- url: fix reuse of connections using HTTP Negotiate (CVE-2026-1965)
+- http: only send bearer if auth is allowed (CVE-2026-3783)
+
 * Thu May 07 2026 Jacek Migacz <jmigacz@redhat.com> - 7.76.1-43
 - tests: disable flaky proxy tests on ppc64le in Konflux builds (RHEL-173187)
 
